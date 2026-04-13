@@ -11,6 +11,7 @@ from typing import Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from src.crawler import Crawler, CrawlError
 
@@ -169,3 +170,105 @@ def test_crawl_drops_fragment_identifiers() -> None:
         Crawler().crawl("https://quotes.toscrape.com/")
 
     assert counts["https://quotes.toscrape.com/page/1/"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Error handling                                                              #
+# --------------------------------------------------------------------------- #
+
+
+def test_crawl_handles_404_and_continues() -> None:
+    """A 404 page must be omitted from the results without aborting."""
+    pages = {
+        "https://quotes.toscrape.com/": (
+            "<html><body>"
+            "<a href='/missing/'>Missing</a>"
+            "<a href='/ok/'>OK</a>"
+            "</body></html>"
+        ),
+        "https://quotes.toscrape.com/ok/": "<html>ok</html>",
+    }
+
+    def fake_get(url: str, **_: object) -> MagicMock:
+        if url.endswith("/missing/"):
+            return _make_response(404, "not found")
+        return _make_response(200, pages[url])
+
+    with patch("src.crawler.requests.get", side_effect=fake_get), \
+         patch("src.crawler.time.sleep"):
+        result = Crawler().crawl("https://quotes.toscrape.com/")
+
+    assert "https://quotes.toscrape.com/missing/" not in result
+    assert "https://quotes.toscrape.com/ok/" in result
+
+
+def test_crawl_handles_connection_error_and_continues() -> None:
+    """Connection errors must be logged and skipped, not propagated."""
+    pages = {
+        "https://quotes.toscrape.com/": (
+            "<html><body>"
+            "<a href='/dead/'>Dead</a>"
+            "<a href='/alive/'>Alive</a>"
+            "</body></html>"
+        ),
+        "https://quotes.toscrape.com/alive/": "<html>alive</html>",
+    }
+
+    def fake_get(url: str, **_: object) -> MagicMock:
+        if url.endswith("/dead/"):
+            raise requests.exceptions.ConnectionError("boom")
+        return _make_response(200, pages[url])
+
+    with patch("src.crawler.requests.get", side_effect=fake_get), \
+         patch("src.crawler.time.sleep"):
+        result = Crawler().crawl("https://quotes.toscrape.com/")
+
+    assert "https://quotes.toscrape.com/dead/" not in result
+    assert "https://quotes.toscrape.com/alive/" in result
+
+
+def test_crawl_handles_timeout_and_continues() -> None:
+    """Timeouts on one page must not stop the crawl."""
+
+    def fake_get(url: str, **_: object) -> MagicMock:
+        raise requests.exceptions.Timeout("slow")
+
+    with patch("src.crawler.requests.get", side_effect=fake_get), \
+         patch("src.crawler.time.sleep"):
+        result = Crawler().crawl("https://quotes.toscrape.com/")
+
+    assert result == {}
+
+
+def test_crawl_rejects_external_start_url() -> None:
+    """Asking the crawler to start outside the allowed domain is misuse."""
+    with pytest.raises(CrawlError):
+        Crawler().crawl("https://example.com/")
+
+
+# --------------------------------------------------------------------------- #
+# Bounds                                                                      #
+# --------------------------------------------------------------------------- #
+
+
+def test_max_pages_caps_results() -> None:
+    """``max_pages`` should stop the crawler after that many successful fetches."""
+    pages = {
+        "https://quotes.toscrape.com/": (
+            "<html><body>"
+            "<a href='/page/2/'>2</a>"
+            "<a href='/page/3/'>3</a>"
+            "</body></html>"
+        ),
+        "https://quotes.toscrape.com/page/2/": "<html>2</html>",
+        "https://quotes.toscrape.com/page/3/": "<html>3</html>",
+    }
+
+    def fake_get(url: str, **_: object) -> MagicMock:
+        return _make_response(200, pages[url])
+
+    with patch("src.crawler.requests.get", side_effect=fake_get), \
+         patch("src.crawler.time.sleep"):
+        result = Crawler(max_pages=2).crawl("https://quotes.toscrape.com/")
+
+    assert len(result) == 2
