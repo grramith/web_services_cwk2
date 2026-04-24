@@ -23,10 +23,20 @@ from __future__ import annotations
 import json
 import logging
 import os
+from typing import Dict
 
 from src.indexer import InvertedIndex
 
 logger = logging.getLogger(__name__)
+
+
+class IndexNotFoundError(FileNotFoundError):
+    """Raised by :func:`load_index` when the requested file does not exist.
+
+    Inherits from :class:`FileNotFoundError` so callers that catch the
+    standard exception still work, while callers that want a more specific
+    error get one.
+    """
 
 
 def save_index(index: InvertedIndex, path: str) -> None:
@@ -45,3 +55,31 @@ def save_index(index: InvertedIndex, path: str) -> None:
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(index, fh, ensure_ascii=False, indent=2, sort_keys=True)
     logger.info("Saved index with %d terms to %s", len(index), path)
+
+
+def load_index(path: str) -> InvertedIndex:
+    """Load a JSON-serialised inverted index from disk.
+
+    Args:
+        path: Filesystem path of the JSON file to read.
+
+    Returns:
+        The deserialised inverted index.
+
+    Raises:
+        IndexNotFoundError: If ``path`` does not exist.
+        ValueError: If the file exists but is not valid JSON.
+    """
+    if not os.path.exists(path):
+        raise IndexNotFoundError(
+            f"No index file at {path!r}. Run 'build' first or check the path."
+        )
+    with open(path, "r", encoding="utf-8") as fh:
+        try:
+            data: Dict = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Index file at {path!r} is not valid JSON: {exc}"
+            ) from exc
+    logger.info("Loaded index with %d terms from %s", len(data), path)
+    return data  # type: ignore[return-value]
