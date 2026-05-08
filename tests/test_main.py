@@ -1,18 +1,23 @@
-"""Unit tests for the interactive :mod:`src.main` shell — dispatch layer.
+"""Unit tests for the interactive :mod:`src.main` shell.
 
 The REPL is exercised at the dispatch layer rather than by feeding stdin to
 :meth:`Shell.run`. Each command handler is a pure method, so calling it
 directly gives us deterministic coverage without poking at ``input()``.
+
+The one test that does drive :meth:`Shell.run` (`test_run_eof_exits_cleanly`)
+uses :func:`unittest.mock.patch` to stub ``input``.
 """
 
 from __future__ import annotations
 
+import io
 from typing import Dict
+from unittest.mock import patch
 
 import pytest
 
-from src.indexer import Indexer
-from src.main import Shell
+from src.indexer import Indexer, InvertedIndex
+from src.main import Shell, main
 
 
 # --------------------------------------------------------------------------- #
@@ -168,3 +173,135 @@ def test_find_returns_ranked_results(
     assert "TF-IDF" in out
     assert "http://a/" in out
     assert "http://b/" in out
+
+
+# --------------------------------------------------------------------------- #
+# load                                                                        #
+# --------------------------------------------------------------------------- #
+
+
+def test_load_missing_file_prints_friendly_error(
+    empty_shell: Shell, capsys: pytest.CaptureFixture[str]
+) -> None:
+    empty_shell.dispatch("load")
+    out = capsys.readouterr().out
+    assert "No index file" in out
+
+
+def test_load_after_save_round_trips(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Build an index, save it via storage, then ``load`` from the shell."""
+    from src.storage import save_index
+
+    pages = {"http://a/": "<p>hi there</p>"}
+    index = Indexer().build_index(pages)
+    path = str(tmp_path / "index.json")
+    save_index(index, path)
+
+    shell = Shell(index_path=path)
+    shell.dispatch("load")
+    out = capsys.readouterr().out
+
+    assert "Loaded index" in out
+    assert shell.index is not None
+    assert "hi" in shell.index
+
+
+def test_load_invalid_json_prints_parse_error(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "index.json"
+    path.write_text("{not valid json", encoding="utf-8")
+    shell = Shell(index_path=str(path))
+    shell.dispatch("load")
+    out = capsys.readouterr().out
+    assert "Could not parse index file" in out
+
+
+# --------------------------------------------------------------------------- #
+# build                                                                       #
+# --------------------------------------------------------------------------- #
+
+
+def test_build_invokes_crawler_and_persists(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``build`` should drive crawler -> indexer -> storage end-to-end."""
+    path = str(tmp_path / "index.json")
+    shell = Shell(index_path=path)
+
+    fake_pages = {"http://quotes.toscrape.com/": "<p>be the change</p>"}
+
+    with patch("src.main.Crawler") as crawler_cls:
+        crawler_cls.return_value.crawl.return_value = fake_pages
+        shell.dispatch("build")
+
+    out = capsys.readouterr().out
+    assert "Crawling" in out
+    assert "Index built" in out
+    assert shell.index is not None
+    assert "change" in shell.index
+    # storage actually wrote something
+    import os
+    assert os.path.exists(path)
+
+
+def test_build_handles_crawl_error(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from src.crawler import CrawlError
+
+    shell = Shell(index_path=str(tmp_path / "index.json"))
+    with patch("src.main.Crawler") as crawler_cls:
+        crawler_cls.return_value.crawl.side_effect = CrawlError("nope")
+        shell.dispatch("build")
+
+    out = capsys.readouterr().out
+    assert "Crawl aborted" in out
+    assert shell.index is None
+
+
+# --------------------------------------------------------------------------- #
+# run() loop                                                                  #
+# --------------------------------------------------------------------------- #
+
+
+def test_run_eof_exits_cleanly(
+    empty_shell: Shell, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Pressing Ctrl-D at the prompt should exit with code 0."""
+    with patch("builtins.input", side_effect=EOFError):
+        rc = empty_shell.run()
+    assert rc == 0
+
+
+def test_run_keyboard_interrupt_exits_cleanly(
+    empty_shell: Shell, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with patch("builtins.input", side_effect=KeyboardInterrupt):
+        rc = empty_shell.run()
+    assert rc == 0
+    assert "Interrupted" in capsys.readouterr().out
+
+
+def test_run_processes_commands_then_exits(
+    empty_shell: Shell, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Feed a sequence of inputs and confirm the loop dispatches them."""
+    inputs = iter(["", "help", "exit"])
+    with patch("builtins.input", lambda _prompt: next(inputs)):
+        rc = empty_shell.run()
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Available commands" in out
+
+
+def test_main_entry_point_runs_shell() -> None:
+    """The module-level :func:`main` should construct a Shell and run it."""
+    with patch("src.main.Shell") as shell_cls:
+        shell_cls.return_value.run.return_value = 0
+        rc = main([])
+    assert rc == 0
+    shell_cls.assert_called_once()
+    shell_cls.return_value.run.assert_called_once()
