@@ -1,5 +1,9 @@
 # Quotes Search Engine
 
+[![tests](https://github.com/grramith/web_services_cwk2/actions/workflows/tests.yml/badge.svg)](https://github.com/grramith/web_services_cwk2/actions/workflows/tests.yml)
+[![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)](./README.md#testing)
+[![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](./.github/workflows/tests.yml)
+
 A command-line search engine that crawls [quotes.toscrape.com](https://quotes.toscrape.com/), builds an inverted index of the pages it visits, and answers user queries through an interactive shell.
 
 Coursework submission for **COMP3011 Web Services and Web Data**, University of Leeds, 2025/26.
