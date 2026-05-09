@@ -470,17 +470,36 @@ This design is simple, explainable, and efficient for the size of the indexed co
 
 ## Complexity
 
-This section summarises the main operations.
+The asymptotic costs below are stated in terms of a fixed set of
+parameters, defined once here so the table can be read without guessing.
 
-| Operation | Approximate Complexity | Explanation |
-| --------- | ---------------------- | ----------- |
-| Tokenisation | `O(n)` | The text is scanned and split into tokens. |
-| Index building | `O(T)` | Each token is processed once, where `T` is the total number of tokens. |
-| Single-term lookup | `O(1)` average | Dictionary lookup gives fast access to a posting list. |
-| Multi-term search | `O(k * p)` plus sorting | `k` is the number of query terms and `p` is the number of candidate pages. |
-| Saving/loading | `O(I)` | `I` is the size of the JSON index file. |
+| Symbol | Meaning |
+| ------ | ------- |
+| `n` | Number of characters in a single document. |
+| `P` | Number of pages (documents) in the indexed corpus. |
+| `L` | Mean tokens per page after tokenisation. |
+| `t` | Number of query terms in a single user query (positives + phrase tokens). |
+| `p` | Number of candidate documents — i.e. those containing every positive term in the query. |
+| `m` | Mean position-list length per term — the average number of times a term occurs in a document that contains it. |
+| `I` | Size of the persisted JSON index in bytes. |
 
-The crawler is intentionally slower than the indexing and search logic because it must respect the required 6-second politeness delay.
+With those symbols fixed, the costs are:
+
+| Operation | Worst-case complexity | Explanation |
+| --------- | --------------------- | ----------- |
+| Tokenisation of one page | `O(n)` | The page text is scanned once and split on whitespace after a `str.translate` punctuation pass. |
+| Building the inverted index | `O(P · L)` | Every token of every page is dispatched into a `setdefault`-backed dictionary, doing constant work per token. |
+| Single-term posting lookup | `O(1)` expected | Direct hash-table access on the term key. |
+| Multi-term AND retrieval | `O(t · p)` | The smallest posting is intersected against the rest; the overall work is bounded by `t` set intersections each touching at most `p` URLs. |
+| Phrase verification | `O(p · t · m)` | For each of the `p` candidates we walk the `t` position lists in lockstep; on average each list has `m` entries. |
+| TF-IDF or BM25 scoring | `O(t · p)` | One score evaluation per (query-term, candidate) pair, plus an `O(p · log p)` sort to order the results — sorting is the dominant cost only when `p ≫ t`. |
+| Did-you-mean suggestion | `O(V)` | `difflib.get_close_matches` scans the entire vocabulary `V` for one missed term, but only when retrieval returns zero hits. |
+| Persisting / loading the index | `O(I)` | The whole JSON document is streamed by the standard library; the constant factors are dominated by JSON parsing, not by Python-level work. |
+
+The crawler is intentionally slower than the indexing and search logic
+because it must respect the required 6-second politeness delay; its
+wall-clock cost is `≥ 6 · P` seconds and is independent of the symbols
+above.
 
 ## Benchmarks
 
