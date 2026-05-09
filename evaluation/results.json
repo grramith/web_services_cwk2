@@ -1,0 +1,355 @@
+{
+  "k": 5,
+  "corpus": {
+    "index_path": "/Users/grramith/Library/CloudStorage/OneDrive-Personal/Leeds/Comp Sci\ud83d\ude29/year 3/web services sem2/webservices cwk2/data/index.json",
+    "documents": 202,
+    "average_document_length": 168.84158415841586
+  },
+  "queries": [
+    {
+      "id": "q01",
+      "query": "love",
+      "type": "single_common",
+      "relevant": [
+        "https://quotes.toscrape.com/tag/love/",
+        "https://quotes.toscrape.com/tag/love/page/2/",
+        "https://quotes.toscrape.com/author/Pablo-Neruda",
+        "https://quotes.toscrape.com/author/Bob-Marley"
+      ],
+      "notes": "Tests how each ranker handles a very common term: 156 documents contain 'love'. The discriminator should be IDF / length normalisation, not retrieval.",
+      "tfidf": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/lack-of-love/",
+          "https://quotes.toscrape.com/tag/live-death-love/",
+          "https://quotes.toscrape.com/tag/romantic/",
+          "https://quotes.toscrape.com/tag/women/",
+          "https://quotes.toscrape.com/tag/marriage/"
+        ],
+        "precision_at_k": 0.0,
+        "reciprocal_rank": 0.125
+      },
+      "bm25": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/love/page/2/",
+          "https://quotes.toscrape.com/tag/lack-of-love/",
+          "https://quotes.toscrape.com/tag/live-death-love/",
+          "https://quotes.toscrape.com/tag/romantic/",
+          "https://quotes.toscrape.com/tag/women/"
+        ],
+        "precision_at_k": 0.2,
+        "reciprocal_rank": 1.0
+      }
+    },
+    {
+      "id": "q02",
+      "query": "life",
+      "type": "single_common",
+      "relevant": [
+        "https://quotes.toscrape.com/tag/life/",
+        "https://quotes.toscrape.com/tag/life/page/2/",
+        "https://quotes.toscrape.com/author/Albert-Einstein"
+      ],
+      "notes": "Another high-frequency term (178 docs). 'life' co-occurs with site boilerplate, so length normalisation should differentiate the two rankers.",
+      "tfidf": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/yourself/",
+          "https://quotes.toscrape.com/tag/life/page/2/",
+          "https://quotes.toscrape.com/tag/contentment/",
+          "https://quotes.toscrape.com/tag/fate/",
+          "https://quotes.toscrape.com/tag/planning/"
+        ],
+        "precision_at_k": 0.2,
+        "reciprocal_rank": 0.5
+      },
+      "bm25": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/life/page/2/",
+          "https://quotes.toscrape.com/tag/yourself/",
+          "https://quotes.toscrape.com/tag/life/",
+          "https://quotes.toscrape.com/tag/death/",
+          "https://quotes.toscrape.com/tag/contentment/"
+        ],
+        "precision_at_k": 0.4,
+        "reciprocal_rank": 1.0
+      }
+    },
+    {
+      "id": "q03",
+      "query": "good",
+      "type": "single_common",
+      "relevant": [
+        "https://quotes.toscrape.com/tag/good/"
+      ],
+      "notes": "Mid-frequency term (30 docs). Smaller candidate pool means ranking differences between TF-IDF and BM25 are easier to inspect by eye.",
+      "tfidf": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/contentment/",
+          "https://quotes.toscrape.com/tag/good/",
+          "https://quotes.toscrape.com/tag/aliteracy/",
+          "https://quotes.toscrape.com/tag/classic/",
+          "https://quotes.toscrape.com/tag/alcohol/"
+        ],
+        "precision_at_k": 0.2,
+        "reciprocal_rank": 0.5
+      },
+      "bm25": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/contentment/",
+          "https://quotes.toscrape.com/tag/good/",
+          "https://quotes.toscrape.com/tag/friendship/",
+          "https://quotes.toscrape.com/tag/aliteracy/",
+          "https://quotes.toscrape.com/tag/friends/"
+        ],
+        "precision_at_k": 0.2,
+        "reciprocal_rank": 0.5
+      }
+    },
+    {
+      "id": "q04",
+      "query": "tolkien journey",
+      "type": "multi_word",
+      "relevant": [
+        "https://quotes.toscrape.com/tag/journey/",
+        "https://quotes.toscrape.com/tag/bilbo/",
+        "https://quotes.toscrape.com/tag/quest/"
+      ],
+      "notes": "AND-semantics: 7 documents contain both terms. Tag pages should rank above the page/7 listing because their token totals are smaller (length-normalisation favours them).",
+      "tfidf": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/journey/",
+          "https://quotes.toscrape.com/tag/bilbo/",
+          "https://quotes.toscrape.com/tag/lost/",
+          "https://quotes.toscrape.com/tag/quest/",
+          "https://quotes.toscrape.com/tag/travel/"
+        ],
+        "precision_at_k": 0.6,
+        "reciprocal_rank": 1.0
+      },
+      "bm25": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/journey/",
+          "https://quotes.toscrape.com/tag/bilbo/",
+          "https://quotes.toscrape.com/tag/lost/",
+          "https://quotes.toscrape.com/tag/quest/",
+          "https://quotes.toscrape.com/tag/travel/"
+        ],
+        "precision_at_k": 0.6,
+        "reciprocal_rank": 1.0
+      }
+    },
+    {
+      "id": "q05",
+      "query": "einstein imagination",
+      "type": "multi_word",
+      "relevant": [
+        "https://quotes.toscrape.com/tag/imagination/"
+      ],
+      "notes": "Tight 3-document candidate set. Ranker quality is judged by whether the tag page is ranked above the two general listing pages.",
+      "tfidf": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/imagination/",
+          "https://quotes.toscrape.com/page/3/",
+          "https://quotes.toscrape.com/page/9/"
+        ],
+        "precision_at_k": 0.2,
+        "reciprocal_rank": 1.0
+      },
+      "bm25": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/imagination/",
+          "https://quotes.toscrape.com/page/3/",
+          "https://quotes.toscrape.com/page/9/"
+        ],
+        "precision_at_k": 0.2,
+        "reciprocal_rank": 1.0
+      }
+    },
+    {
+      "id": "q06",
+      "query": "austen books",
+      "type": "multi_word",
+      "relevant": [
+        "https://quotes.toscrape.com/tag/jane-austen/",
+        "https://quotes.toscrape.com/tag/books/",
+        "https://quotes.toscrape.com/tag/aliteracy/",
+        "https://quotes.toscrape.com/tag/classic/"
+      ],
+      "notes": "Larger candidate set (17 docs); tests how each ranker copes with boilerplate dilution from sidebar tag links.",
+      "tfidf": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/jane-austen/",
+          "https://quotes.toscrape.com/tag/elizabeth-bennet/",
+          "https://quotes.toscrape.com/tag/aliteracy/",
+          "https://quotes.toscrape.com/tag/romantic/",
+          "https://quotes.toscrape.com/tag/women/"
+        ],
+        "precision_at_k": 0.4,
+        "reciprocal_rank": 1.0
+      },
+      "bm25": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/jane-austen/",
+          "https://quotes.toscrape.com/tag/elizabeth-bennet/",
+          "https://quotes.toscrape.com/tag/aliteracy/",
+          "https://quotes.toscrape.com/tag/romantic/",
+          "https://quotes.toscrape.com/tag/women/"
+        ],
+        "precision_at_k": 0.4,
+        "reciprocal_rank": 1.0
+      }
+    },
+    {
+      "id": "q07",
+      "query": "\"love is\"",
+      "type": "phrase",
+      "relevant": [
+        "https://quotes.toscrape.com/tag/love/",
+        "https://quotes.toscrape.com/tag/love/page/2/"
+      ],
+      "notes": "Quoted phrase forces consecutive-position matching. The candidate set (12 docs) is filtered before ranking, so we are evaluating ordering quality, not phrase detection.",
+      "tfidf": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/activism/",
+          "https://quotes.toscrape.com/tag/apathy/",
+          "https://quotes.toscrape.com/tag/hate/",
+          "https://quotes.toscrape.com/tag/indifference/",
+          "https://quotes.toscrape.com/tag/opposite/"
+        ],
+        "precision_at_k": 0.0,
+        "reciprocal_rank": 0.125
+      },
+      "bm25": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/activism/",
+          "https://quotes.toscrape.com/tag/apathy/",
+          "https://quotes.toscrape.com/tag/hate/",
+          "https://quotes.toscrape.com/tag/indifference/",
+          "https://quotes.toscrape.com/tag/opposite/"
+        ],
+        "precision_at_k": 0.0,
+        "reciprocal_rank": 0.16666666666666666
+      }
+    },
+    {
+      "id": "q08",
+      "query": "\"the truth\"",
+      "type": "phrase",
+      "relevant": [
+        "https://quotes.toscrape.com/tag/friendship/",
+        "https://quotes.toscrape.com/tag/life/page/2/"
+      ],
+      "notes": "Tests phrase ranking on a 7-document candidate set; deeper documents like the homepage should be down-ranked relative to focused tag pages.",
+      "tfidf": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/truth/",
+          "https://quotes.toscrape.com/tag/misattributed-mark-twain/",
+          "https://quotes.toscrape.com/tag/life/page/2/",
+          "https://quotes.toscrape.com/page/9/",
+          "https://quotes.toscrape.com/page/10/"
+        ],
+        "precision_at_k": 0.2,
+        "reciprocal_rank": 0.3333333333333333
+      },
+      "bm25": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/truth/",
+          "https://quotes.toscrape.com/tag/misattributed-mark-twain/",
+          "https://quotes.toscrape.com/page/10/",
+          "https://quotes.toscrape.com/tag/life/page/2/",
+          "https://quotes.toscrape.com/page/9/"
+        ],
+        "precision_at_k": 0.2,
+        "reciprocal_rank": 0.25
+      }
+    },
+    {
+      "id": "q09",
+      "query": "bilbo",
+      "type": "rare",
+      "relevant": [
+        "https://quotes.toscrape.com/tag/bilbo/",
+        "https://quotes.toscrape.com/tag/journey/"
+      ],
+      "notes": "Rare term (7 docs). High IDF means BM25 and TF-IDF should converge on the same ordering; primary risk is length normalisation behaving badly on sparse documents.",
+      "tfidf": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/bilbo/",
+          "https://quotes.toscrape.com/tag/journey/",
+          "https://quotes.toscrape.com/tag/lost/",
+          "https://quotes.toscrape.com/tag/quest/",
+          "https://quotes.toscrape.com/tag/travel/"
+        ],
+        "precision_at_k": 0.4,
+        "reciprocal_rank": 1.0
+      },
+      "bm25": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/tag/bilbo/",
+          "https://quotes.toscrape.com/tag/journey/",
+          "https://quotes.toscrape.com/tag/lost/",
+          "https://quotes.toscrape.com/tag/quest/",
+          "https://quotes.toscrape.com/tag/travel/"
+        ],
+        "precision_at_k": 0.4,
+        "reciprocal_rank": 1.0
+      }
+    },
+    {
+      "id": "q10",
+      "query": "neruda",
+      "type": "rare",
+      "relevant": [
+        "https://quotes.toscrape.com/author/Pablo-Neruda"
+      ],
+      "notes": "Very rare term (4 docs). Tests that high-IDF terms still place author pages first instead of generic tag pages that merely link to the author.",
+      "tfidf": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/author/Pablo-Neruda",
+          "https://quotes.toscrape.com/tag/poetry/",
+          "https://quotes.toscrape.com/page/3/",
+          "https://quotes.toscrape.com/tag/love/"
+        ],
+        "precision_at_k": 0.2,
+        "reciprocal_rank": 1.0
+      },
+      "bm25": {
+        "ranked_top_k": [
+          "https://quotes.toscrape.com/author/Pablo-Neruda",
+          "https://quotes.toscrape.com/tag/poetry/",
+          "https://quotes.toscrape.com/page/3/",
+          "https://quotes.toscrape.com/tag/love/"
+        ],
+        "precision_at_k": 0.2,
+        "reciprocal_rank": 1.0
+      }
+    },
+    {
+      "id": "q11",
+      "query": "marx",
+      "type": "empty",
+      "relevant": [],
+      "notes": "quotes.toscrape.com hosts no Marx-attributed quotes; the index has zero postings for 'marx'. Both rankers should return the empty list, which both P@5 and MRR conventionally treat as 0.",
+      "tfidf": {
+        "ranked_top_k": [],
+        "precision_at_k": 0.0,
+        "reciprocal_rank": 0.0
+      },
+      "bm25": {
+        "ranked_top_k": [],
+        "precision_at_k": 0.0,
+        "reciprocal_rank": 0.0
+      }
+    }
+  ],
+  "averages": {
+    "queries_with_judgements": 10,
+    "tfidf": {
+      "mean_precision_at_k": 0.24,
+      "mean_reciprocal_rank": 0.6583333333333333
+    },
+    "bm25": {
+      "mean_precision_at_k": 0.28,
+      "mean_reciprocal_rank": 0.7916666666666667
+    }
+  }
+}

@@ -1,0 +1,186 @@
+{
+  "_comment": "Hand-labelled queries for the TF-IDF vs BM25 evaluation harness. Every URL listed under relevant_urls was sampled directly from data/index.json and verified to be in the candidate set produced by the project's existing find() logic, so any difference between the rankers can only come from how the candidates are *ordered*, not which candidates are returned.",
+  "corpus": "data/index.json",
+  "k_for_precision": 5,
+  "queries": [
+    {
+      "id": "q01",
+      "query": "love",
+      "type": "single_common",
+      "relevant_urls": [
+        {
+          "url": "https://quotes.toscrape.com/tag/love/",
+          "justification": "Tag landing page that aggregates every quote on the site explicitly tagged with 'love' — by construction the most relevant page for the bare query 'love'."
+        },
+        {
+          "url": "https://quotes.toscrape.com/tag/love/page/2/",
+          "justification": "Second page of the 'love' tag listing — same canonical match as page 1 of the same tag."
+        },
+        {
+          "url": "https://quotes.toscrape.com/author/Pablo-Neruda",
+          "justification": "Pablo Neruda's author page surfaces because his sole quoted line on the site is explicitly about love."
+        },
+        {
+          "url": "https://quotes.toscrape.com/author/Bob-Marley",
+          "justification": "Bob Marley's author page contains the much-quoted '...the right one' line about love, making it a high-relevance hit."
+        }
+      ],
+      "notes": "Tests how each ranker handles a very common term: 156 documents contain 'love'. The discriminator should be IDF / length normalisation, not retrieval."
+    },
+    {
+      "id": "q02",
+      "query": "life",
+      "type": "single_common",
+      "relevant_urls": [
+        {
+          "url": "https://quotes.toscrape.com/tag/life/",
+          "justification": "Tag landing page for 'life' quotes — by design the canonical hit for the bare query 'life'."
+        },
+        {
+          "url": "https://quotes.toscrape.com/tag/life/page/2/",
+          "justification": "Second page of the 'life' tag listing — equivalently relevant."
+        },
+        {
+          "url": "https://quotes.toscrape.com/author/Albert-Einstein",
+          "justification": "Einstein's author page hosts his 'There are only two ways to live your life' quote, an iconic life-themed entry."
+        }
+      ],
+      "notes": "Another high-frequency term (178 docs). 'life' co-occurs with site boilerplate, so length normalisation should differentiate the two rankers."
+    },
+    {
+      "id": "q03",
+      "query": "good",
+      "type": "single_common",
+      "relevant_urls": [
+        {
+          "url": "https://quotes.toscrape.com/tag/good/",
+          "justification": "Tag landing page for 'good' quotes — the bare query 'good' should rank this first."
+        }
+      ],
+      "notes": "Mid-frequency term (30 docs). Smaller candidate pool means ranking differences between TF-IDF and BM25 are easier to inspect by eye."
+    },
+    {
+      "id": "q04",
+      "query": "tolkien journey",
+      "type": "multi_word",
+      "relevant_urls": [
+        {
+          "url": "https://quotes.toscrape.com/tag/journey/",
+          "justification": "Tag page that exists *because* Tolkien's 'Not all those who wander are lost' is tagged 'journey' — the canonical match for the conjunction."
+        },
+        {
+          "url": "https://quotes.toscrape.com/tag/bilbo/",
+          "justification": "Tolkien's wander/journey quote is also tagged 'bilbo'; this page therefore contains both terms in the exact context the user is asking about."
+        },
+        {
+          "url": "https://quotes.toscrape.com/tag/quest/",
+          "justification": "Same Tolkien quote about journeys/quests, surfaced via the 'quest' tag — strong topical relevance."
+        }
+      ],
+      "notes": "AND-semantics: 7 documents contain both terms. Tag pages should rank above the page/7 listing because their token totals are smaller (length-normalisation favours them)."
+    },
+    {
+      "id": "q05",
+      "query": "einstein imagination",
+      "type": "multi_word",
+      "relevant_urls": [
+        {
+          "url": "https://quotes.toscrape.com/tag/imagination/",
+          "justification": "The 'imagination' tag exists for Einstein's 'Imagination is more important than knowledge' quote — exactly the page a user asking about Einstein and imagination wants."
+        }
+      ],
+      "notes": "Tight 3-document candidate set. Ranker quality is judged by whether the tag page is ranked above the two general listing pages."
+    },
+    {
+      "id": "q06",
+      "query": "austen books",
+      "type": "multi_word",
+      "relevant_urls": [
+        {
+          "url": "https://quotes.toscrape.com/tag/jane-austen/",
+          "justification": "Tag page collecting every Austen-attributed quote on the site — directly answers the conjunction 'austen books'."
+        },
+        {
+          "url": "https://quotes.toscrape.com/tag/books/",
+          "justification": "Books tag page — Austen's library quote is filed here, so the page co-mentions both terms in a tightly relevant way."
+        },
+        {
+          "url": "https://quotes.toscrape.com/tag/aliteracy/",
+          "justification": "Aliteracy tag carries an Austen quote about not reading good books, satisfying both terms."
+        },
+        {
+          "url": "https://quotes.toscrape.com/tag/classic/",
+          "justification": "'Classic' tag hosts Austen's 'classic — a book which people praise and don't read' quote, which mentions books explicitly."
+        }
+      ],
+      "notes": "Larger candidate set (17 docs); tests how each ranker copes with boilerplate dilution from sidebar tag links."
+    },
+    {
+      "id": "q07",
+      "query": "\"love is\"",
+      "type": "phrase",
+      "relevant_urls": [
+        {
+          "url": "https://quotes.toscrape.com/tag/love/",
+          "justification": "Love-tag landing page contains multiple quotes opening with 'love is...' (e.g. 'Love is that condition in which the happiness of another person is essential')."
+        },
+        {
+          "url": "https://quotes.toscrape.com/tag/love/page/2/",
+          "justification": "Second page of the love tag also carries quotes phrased 'love is...' — equally on-topic."
+        }
+      ],
+      "notes": "Quoted phrase forces consecutive-position matching. The candidate set (12 docs) is filtered before ranking, so we are evaluating ordering quality, not phrase detection."
+    },
+    {
+      "id": "q08",
+      "query": "\"the truth\"",
+      "type": "phrase",
+      "relevant_urls": [
+        {
+          "url": "https://quotes.toscrape.com/tag/friendship/",
+          "justification": "Friendship tag includes the 'half a truth is often a great lie' line, where 'the truth' appears as a contiguous phrase in the tagline context."
+        },
+        {
+          "url": "https://quotes.toscrape.com/tag/life/page/2/",
+          "justification": "Life tag page 2 carries the 'the truth' phrase in the context of an Einstein-style life-philosophy quote."
+        }
+      ],
+      "notes": "Tests phrase ranking on a 7-document candidate set; deeper documents like the homepage should be down-ranked relative to focused tag pages."
+    },
+    {
+      "id": "q09",
+      "query": "bilbo",
+      "type": "rare",
+      "relevant_urls": [
+        {
+          "url": "https://quotes.toscrape.com/tag/bilbo/",
+          "justification": "Tag page literally titled 'bilbo' — unambiguous canonical relevance for a bare 'bilbo' query."
+        },
+        {
+          "url": "https://quotes.toscrape.com/tag/journey/",
+          "justification": "Tolkien's wander quote about Bilbo lives under the 'journey' tag too, making this page relevant for any reader looking for the source."
+        }
+      ],
+      "notes": "Rare term (7 docs). High IDF means BM25 and TF-IDF should converge on the same ordering; primary risk is length normalisation behaving badly on sparse documents."
+    },
+    {
+      "id": "q10",
+      "query": "neruda",
+      "type": "rare",
+      "relevant_urls": [
+        {
+          "url": "https://quotes.toscrape.com/author/Pablo-Neruda",
+          "justification": "Pablo Neruda's dedicated author page — the obvious canonical answer for a one-word author-name query."
+        }
+      ],
+      "notes": "Very rare term (4 docs). Tests that high-IDF terms still place author pages first instead of generic tag pages that merely link to the author."
+    },
+    {
+      "id": "q11",
+      "query": "marx",
+      "type": "empty",
+      "relevant_urls": [],
+      "notes": "quotes.toscrape.com hosts no Marx-attributed quotes; the index has zero postings for 'marx'. Both rankers should return the empty list, which both P@5 and MRR conventionally treat as 0."
+    }
+  ]
+}
