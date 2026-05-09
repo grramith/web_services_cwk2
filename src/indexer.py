@@ -33,6 +33,7 @@ functions so they can be unit-tested without constructing an :class:`Indexer`.
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 import string
@@ -61,6 +62,19 @@ _EXTRA_PUNCT = "“”‘’–—…\xa0"
 _EXTRA_TABLE = str.maketrans({ch: " " for ch in _EXTRA_PUNCT})
 
 
+@functools.lru_cache(maxsize=1)
+def _get_stemmer():
+    """Return a singleton :class:`nltk.stem.PorterStemmer` instance.
+
+    The stemmer is constructed lazily so importing :mod:`src.indexer`
+    in a no-stem run never imports nltk. Tests that exercise the
+    no-stem path therefore stay fast and never need the optional
+    dependency.
+    """
+    from nltk.stem import PorterStemmer  # local import — see docstring
+    return PorterStemmer()
+
+
 def extract_text(html: str) -> str:
     """Return the visible text content of an HTML document.
 
@@ -83,11 +97,14 @@ def extract_text(html: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def tokenize(text: str) -> List[str]:
+def tokenize(text: str, *, stem: bool = False) -> List[str]:
     """Tokenise ``text`` into lowercase, punctuation-free tokens.
 
     Args:
         text: Arbitrary text.
+        stem: When ``True``, run each token through
+            :class:`nltk.stem.PorterStemmer` before returning. Defaults to
+            ``False`` so existing behaviour and tests are unaffected.
 
     Returns:
         List of tokens in their original order. Empty fragments produced by
@@ -95,11 +112,26 @@ def tokenize(text: str) -> List[str]:
     """
     lowered = text.lower()
     cleaned = lowered.translate(_PUNCT_TABLE).translate(_EXTRA_TABLE)
-    return [tok for tok in cleaned.split() if tok]
+    tokens = [tok for tok in cleaned.split() if tok]
+    if stem and tokens:
+        stemmer = _get_stemmer()
+        tokens = [stemmer.stem(tok) for tok in tokens]
+    return tokens
 
 
 class Indexer:
-    """Builds an inverted index from a ``{url: html}`` mapping."""
+    """Builds an inverted index from a ``{url: html}`` mapping.
+
+    Args:
+        stem: When ``True``, the indexer applies :class:`nltk.stem.PorterStemmer`
+            to every token at index time so that morphological variants
+            (``run`` / ``running`` / ``runs``) collapse onto the same posting.
+            Defaults to ``False`` to preserve the un-stemmed behaviour the
+            rest of the project assumes.
+    """
+
+    def __init__(self, stem: bool = False) -> None:
+        self.stem = stem
 
     def build_index(self, pages: Dict[str, str]) -> InvertedIndex:
         """Construct an inverted index for the supplied pages.
@@ -114,7 +146,7 @@ class Indexer:
         index: InvertedIndex = {}
         for url, html in pages.items():
             text = extract_text(html)
-            tokens = tokenize(text)
+            tokens = tokenize(text, stem=self.stem)
             self._add_document(index, url, tokens)
             logger.debug("Indexed %s (%d tokens)", url, len(tokens))
         logger.info("Index built: %d unique terms across %d pages.",

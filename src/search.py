@@ -141,17 +141,23 @@ class QueryGroup:
         return bool(self.positives or self.phrases)
 
 
-def parse_query(raw: str) -> List[QueryGroup]:
+def parse_query(raw: str, *, stem: bool = False) -> List[QueryGroup]:
     """Parse ``raw`` into a list of OR-groups.
 
     Single-group queries (the common case) yield a one-element list, so
     callers that don't care about boolean structure can just look at
     ``parse_query(q)[0]``.
+
+    Args:
+        raw: User query string.
+        stem: When ``True``, apply :class:`nltk.stem.PorterStemmer` to
+            every token (positives, phrase tokens and negatives) so the
+            query matches indexes built with stemming enabled.
     """
     extracted_phrases: List[List[str]] = []
 
     def _capture(match: "re.Match[str]") -> str:
-        toks = tokenize(match.group(1))
+        toks = tokenize(match.group(1), stem=stem)
         if not toks:
             return " "
         extracted_phrases.append(toks)
@@ -192,7 +198,7 @@ def parse_query(raw: str) -> List[QueryGroup]:
             expect_negation = False
             continue
 
-        toks = tokenize(word)
+        toks = tokenize(word, stem=stem)
         if not toks:
             expect_negation = False
             continue
@@ -329,7 +335,7 @@ def has_phrase(raw_query: str) -> bool:
     return bool(_QUOTED_PHRASE.search(raw_query))
 
 
-def query_positive_terms(raw_query: str) -> List[str]:
+def query_positive_terms(raw_query: str, *, stem: bool = False) -> List[str]:
     """Flatten ``raw_query`` into the positive terms used for snippet matching.
 
     Positive terms are the union of every OR-group's ``positives`` and
@@ -339,6 +345,8 @@ def query_positive_terms(raw_query: str) -> List[str]:
 
     Args:
         raw_query: The user's raw query string.
+        stem: When ``True``, apply the Porter stemmer so the returned
+            terms match the stemmed tokens stored in the index.
 
     Returns:
         Lowercased, punctuation-free terms in the order the parser saw
@@ -346,7 +354,7 @@ def query_positive_terms(raw_query: str) -> List[str]:
         to dedupe.
     """
     out: List[str] = []
-    for group in parse_query(raw_query):
+    for group in parse_query(raw_query, stem=stem):
         out.extend(group.positives)
         for phrase in group.phrases:
             out.extend(phrase)
@@ -358,7 +366,7 @@ def has_operators(raw_query: str) -> bool:
     return bool(_OPERATOR_TOKEN.search(raw_query))
 
 
-def find(index: InvertedIndex, query: str) -> List[str]:
+def find(index: InvertedIndex, query: str, *, stem: bool = False) -> List[str]:
     """Return URLs matching ``query``, ranked by descending TF-IDF.
 
     Supports phrase queries (``"..."``), boolean operators (uppercase
@@ -369,12 +377,15 @@ def find(index: InvertedIndex, query: str) -> List[str]:
     Args:
         index: The inverted index to query.
         query: Free-text query string.
+        stem: When ``True``, apply the Porter stemmer to every query
+            token before lookup. Pass the same flag the index was built
+            with — see :func:`src.storage.load_index_metadata`.
 
     Returns:
         Ordered list of URLs (most relevant first). Empty list if no
         document satisfies the query.
     """
-    groups = parse_query(query)
+    groups = parse_query(query, stem=stem)
     if not groups:
         return []
 
@@ -405,7 +416,7 @@ def find(index: InvertedIndex, query: str) -> List[str]:
 
 
 def find_with_suggestions(
-    index: InvertedIndex, query: str
+    index: InvertedIndex, query: str, *, stem: bool = False
 ) -> Tuple[List[str], List[Tuple[str, List[str]]]]:
     """Run :func:`find` and additionally suggest replacements for missing terms.
 
@@ -413,13 +424,19 @@ def find_with_suggestions(
     ``(missing_term, [candidate, ...])`` pairs — empty when the query
     succeeded or when no near-matches were found. The CLI uses this to
     print a "Did you mean: ..." hint after a no-results query.
+
+    Args:
+        index: The inverted index to query.
+        query: Free-text query string.
+        stem: When ``True``, apply the Porter stemmer to every query
+            token before lookup so the search matches a stemmed index.
     """
-    results = find(index, query)
+    results = find(index, query, stem=stem)
     if results:
         return results, []
     suggestions: List[Tuple[str, List[str]]] = []
     seen: Set[str] = set()
-    for group in parse_query(query):
+    for group in parse_query(query, stem=stem):
         candidate_terms: List[str] = list(group.positives)
         for phrase in group.phrases:
             candidate_terms.extend(phrase)
