@@ -1,0 +1,12 @@
+{
+  "build_seconds": 0.011220583925023675,
+  "build_pages": 50,
+  "build_tokens_total": 12600,
+  "load_seconds": 0.016902374802157283,
+  "load_terms": 4574,
+  "query_seconds_mean": 0.0014592849463224411,
+  "query_seconds_median": 0.0008037500083446503,
+  "query_seconds_max": 0.007770791184157133,
+  "query_count": 50,
+  "index_bytes": 2796791
+}
