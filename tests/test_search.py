@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 
 from src.indexer import Indexer, InvertedIndex
-from src.search import find, has_phrase, parse_query, print_word
+from src.search import (
+    find,
+    has_operators,
+    has_phrase,
+    parse_query,
+    print_word,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -177,27 +183,77 @@ def test_find_strips_query_punctuation(small_index: InvertedIndex) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_parse_query_no_quotes_returns_only_singletons() -> None:
-    singletons, phrases = parse_query("good morning friends")
-    assert singletons == ["good", "morning", "friends"]
-    assert phrases == []
+def test_parse_query_no_quotes_returns_single_group_of_singletons() -> None:
+    groups = parse_query("good morning friends")
+    assert len(groups) == 1
+    assert groups[0].positives == ["good", "morning", "friends"]
+    assert groups[0].phrases == []
+    assert groups[0].negatives == []
 
 
 def test_parse_query_extracts_quoted_phrase() -> None:
-    singletons, phrases = parse_query('"good night"')
-    assert singletons == []
-    assert phrases == [["good", "night"]]
+    groups = parse_query('"good night"')
+    assert len(groups) == 1
+    assert groups[0].positives == []
+    assert groups[0].phrases == [["good", "night"]]
 
 
 def test_parse_query_mixes_phrase_and_singletons() -> None:
-    singletons, phrases = parse_query('cat "good night" dog')
-    assert singletons == ["cat", "dog"]
-    assert phrases == [["good", "night"]]
+    groups = parse_query('cat "good night" dog')
+    assert len(groups) == 1
+    assert groups[0].positives == ["cat", "dog"]
+    assert groups[0].phrases == [["good", "night"]]
+
+
+def test_parse_query_uppercase_and_is_no_op() -> None:
+    """``AND`` is the redundant default — must not appear as a search term."""
+    groups = parse_query("love AND life")
+    assert len(groups) == 1
+    assert groups[0].positives == ["love", "life"]
+
+
+def test_parse_query_uppercase_or_splits_into_groups() -> None:
+    groups = parse_query("love OR hate")
+    assert len(groups) == 2
+    assert groups[0].positives == ["love"]
+    assert groups[1].positives == ["hate"]
+
+
+def test_parse_query_uppercase_not_marks_negation() -> None:
+    groups = parse_query("love NOT hate")
+    assert len(groups) == 1
+    assert groups[0].positives == ["love"]
+    assert groups[0].negatives == ["hate"]
+
+
+def test_parse_query_lowercase_words_are_not_operators() -> None:
+    """Prose like ``cats and dogs`` must search for the literal words."""
+    groups = parse_query("cats and dogs")
+    assert len(groups) == 1
+    assert groups[0].positives == ["cats", "and", "dogs"]
+    assert groups[0].negatives == []
+
+
+def test_parse_query_or_with_phrases_and_negation() -> None:
+    """Combined query: ``love NOT hate OR "good friends"``."""
+    groups = parse_query('love NOT hate OR "good friends"')
+    assert len(groups) == 2
+    assert groups[0].positives == ["love"]
+    assert groups[0].negatives == ["hate"]
+    assert groups[1].phrases == [["good", "friends"]]
 
 
 def test_has_phrase_detects_quotes() -> None:
     assert has_phrase('find "good night"')
     assert not has_phrase("find good night")
+
+
+def test_has_operators_detects_uppercase_only() -> None:
+    assert has_operators("love AND life")
+    assert has_operators("love OR life")
+    assert has_operators("love NOT hate")
+    assert not has_operators("love and life")
+    assert not has_operators("love")
 
 
 # --------------------------------------------------------------------------- #
@@ -242,6 +298,70 @@ def test_find_phrase_with_extra_singleton_intersects() -> None:
     idx = Indexer().build_index(pages)
 
     assert find(idx, '"good night" friends') == ["http://both/"]
+
+
+# --------------------------------------------------------------------------- #
+# find: boolean operators                                                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_find_uppercase_and_matches_simple_and(
+    small_index: InvertedIndex,
+) -> None:
+    """``love AND life`` must behave identically to ``love life``."""
+    pages = {
+        "http://both/": "<p>love life</p>",
+        "http://only_love/": "<p>love alone</p>",
+    }
+    idx = Indexer().build_index(pages)
+    assert find(idx, "love AND life") == find(idx, "love life")
+    assert find(idx, "love AND life") == ["http://both/"]
+
+
+def test_find_uppercase_or_unions_results() -> None:
+    """``love OR life`` must return the union of matches."""
+    pages = {
+        "http://has_love/": "<p>only love here</p>",
+        "http://has_life/": "<p>only life here</p>",
+        "http://has_neither/": "<p>fish chips</p>",
+    }
+    idx = Indexer().build_index(pages)
+    result = find(idx, "love OR life")
+    assert set(result) == {"http://has_love/", "http://has_life/"}
+
+
+def test_find_uppercase_not_excludes_pages(
+    small_index: InvertedIndex,
+) -> None:
+    """``good NOT night`` keeps pages with ``good`` but drops those with ``night``."""
+    # http://a/ has good+night → excluded.
+    # http://b/ has good (no night) → kept.
+    assert find(small_index, "good NOT night") == ["http://b/"]
+
+
+def test_find_only_not_returns_empty(small_index: InvertedIndex) -> None:
+    """A pure-NOT query has no positive anchor — must return empty."""
+    assert find(small_index, "NOT night") == []
+
+
+def test_find_lowercase_and_or_not_are_words(small_index: InvertedIndex) -> None:
+    """Lowercase ``and``/``or``/``not`` are ordinary search terms."""
+    # ``find good and night`` should AND-search for good+and+night;
+    # the small_index doesn't have the word "and", so result is empty.
+    assert find(small_index, "good and night") == []
+
+
+def test_find_or_with_not_in_one_arm() -> None:
+    """``love NOT hate OR fish`` = ``(love NOT hate) ∪ fish``."""
+    pages = {
+        "http://love_only/": "<p>only love here</p>",
+        "http://love_hate/": "<p>love and hate together</p>",
+        "http://fish/": "<p>just fish</p>",
+        "http://nothing/": "<p>banana</p>",
+    }
+    idx = Indexer().build_index(pages)
+    result = set(find(idx, "love NOT hate OR fish"))
+    assert result == {"http://love_only/", "http://fish/"}
 
 
 def test_find_deterministic_on_score_ties() -> None:

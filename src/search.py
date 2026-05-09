@@ -7,14 +7,21 @@ Two public entry points:
 * :func:`find` — answers a query and returns the matching URLs ranked by
   **TF-IDF**.
 
-Query syntax (phase 1)
-----------------------
+Query syntax
+------------
 
 * Bare words are AND'd together: ``good night`` matches pages containing
   both terms.
 * ``"good night"`` (double-quoted) is a **phrase**: matches only pages
   where the words appear at consecutive token positions, verified using
   the position lists stored in the index.
+* Uppercase ``AND`` is the redundant default separator.
+* Uppercase ``OR`` splits the query into independent groups whose
+  results are unioned.
+* Uppercase ``NOT word`` (or ``NOT "phrase"``) excludes any document
+  containing the named term(s).
+* Lowercase ``and`` / ``or`` / ``not`` are treated as ordinary search
+  terms so prose like ``cats and dogs`` still searches for those words.
 
 TF-IDF formula
 --------------
@@ -41,7 +48,8 @@ from __future__ import annotations
 import logging
 import math
 import re
-from typing import List, Set, Tuple
+from dataclasses import dataclass, field
+from typing import List, Set
 
 from src.indexer import InvertedIndex, tokenize
 
@@ -80,81 +88,192 @@ def print_word(index: InvertedIndex, word: str) -> None:
 
 
 _QUOTED_PHRASE = re.compile(r'"([^"]*)"')
+_OPERATOR_TOKEN = re.compile(r"\b(AND|OR|NOT)\b")
+_PHRASE_PLACEHOLDER = "__PHRASE_{}__"
 
 
-def parse_query(raw: str) -> Tuple[List[str], List[List[str]]]:
-    """Split a raw query into ``(singletons, phrases)``.
+@dataclass
+class QueryGroup:
+    """One OR-arm of a parsed query.
 
-    * ``singletons`` — bare tokens that must appear in every result
-      (AND-semantics, the existing default).
-    * ``phrases`` — each is a tokenised list whose words must appear at
-      *consecutive* positions in a matching document.
+    Within a single group, ``positives`` and ``phrases`` are AND'd, and
+    any document containing a ``negatives`` term is excluded. Multiple
+    groups produced by an ``OR`` are unioned at the top level.
     """
-    phrases: List[List[str]] = []
+
+    positives: List[str] = field(default_factory=list)
+    phrases: List[List[str]] = field(default_factory=list)
+    negatives: List[str] = field(default_factory=list)
+
+    def is_empty(self) -> bool:
+        return not (self.positives or self.phrases or self.negatives)
+
+    def has_positive_anchor(self) -> bool:
+        """A group needs at least one positive constraint to score URLs against."""
+        return bool(self.positives or self.phrases)
+
+
+def parse_query(raw: str) -> List[QueryGroup]:
+    """Parse ``raw`` into a list of OR-groups.
+
+    Single-group queries (the common case) yield a one-element list, so
+    callers that don't care about boolean structure can just look at
+    ``parse_query(q)[0]``.
+    """
+    extracted_phrases: List[List[str]] = []
 
     def _capture(match: "re.Match[str]") -> str:
         toks = tokenize(match.group(1))
-        if toks:
-            phrases.append(toks)
-        return " "
+        if not toks:
+            return " "
+        extracted_phrases.append(toks)
+        return f" {_PHRASE_PLACEHOLDER.format(len(extracted_phrases) - 1)} "
 
     remaining = _QUOTED_PHRASE.sub(_capture, raw)
-    singletons = tokenize(remaining)
-    return singletons, phrases
+    parts = remaining.split()
+
+    groups: List[QueryGroup] = []
+    current = QueryGroup()
+    expect_negation = False
+
+    for word in parts:
+        if word == "OR":
+            if not current.is_empty():
+                groups.append(current)
+            current = QueryGroup()
+            expect_negation = False
+            continue
+        if word == "AND":
+            # Default semantics — no-op, just advance.
+            expect_negation = False
+            continue
+        if word == "NOT":
+            expect_negation = True
+            continue
+
+        phrase_tokens = _resolve_phrase_placeholder(word, extracted_phrases)
+        if phrase_tokens is not None:
+            if expect_negation:
+                # NOT applied to a phrase: exclude any document containing
+                # any of the phrase's tokens. (A more precise "not adjacent"
+                # would need negative phrase verification — skipped for
+                # simplicity.)
+                current.negatives.extend(phrase_tokens)
+            else:
+                current.phrases.append(phrase_tokens)
+            expect_negation = False
+            continue
+
+        toks = tokenize(word)
+        if not toks:
+            expect_negation = False
+            continue
+        if expect_negation:
+            current.negatives.extend(toks)
+        else:
+            current.positives.extend(toks)
+        expect_negation = False
+
+    if not current.is_empty():
+        groups.append(current)
+    return groups
+
+
+def _resolve_phrase_placeholder(
+    word: str, phrases: List[List[str]]
+) -> "List[str] | None":
+    """If ``word`` is a phrase sentinel, return the phrase tokens, else ``None``."""
+    if not (word.startswith("__PHRASE_") and word.endswith("__")):
+        return None
+    try:
+        idx = int(word[len("__PHRASE_"):-2])
+    except ValueError:
+        return None
+    if 0 <= idx < len(phrases):
+        return phrases[idx]
+    return None
 
 
 def has_phrase(raw_query: str) -> bool:
-    """Return ``True`` if ``raw_query`` contains a ``"..."`` segment.
-
-    Used by the CLI to choose a phrase-aware result label without having
-    to re-parse the query.
-    """
+    """Return ``True`` if ``raw_query`` contains a ``"..."`` segment."""
     return bool(_QUOTED_PHRASE.search(raw_query))
+
+
+def has_operators(raw_query: str) -> bool:
+    """Return ``True`` if ``raw_query`` contains an uppercase boolean operator."""
+    return bool(_OPERATOR_TOKEN.search(raw_query))
 
 
 def find(index: InvertedIndex, query: str) -> List[str]:
     """Return URLs matching ``query``, ranked by descending TF-IDF.
 
-    Bare words use AND-semantics. ``"phrase"`` segments additionally
-    require those tokens to appear at consecutive positions, verified
-    against the index's position lists. Ties on score break by URL
-    alphabetical order for deterministic ordering.
+    Supports phrase queries (``"..."``), boolean operators (uppercase
+    ``AND``/``OR``/``NOT``), and bare-word AND-semantics by default.
+    Ties on score break by URL alphabetical order for deterministic
+    ordering.
 
     Args:
         index: The inverted index to query.
         query: Free-text query string.
 
     Returns:
-        Ordered list of URLs (most relevant first). Empty list if the query
-        is empty or no document satisfies every constraint.
+        Ordered list of URLs (most relevant first). Empty list if no
+        document satisfies the query.
     """
-    singletons, phrases = parse_query(query)
-    if not singletons and not phrases:
+    groups = parse_query(query)
+    if not groups:
         return []
 
-    must_have_terms = list(singletons)
-    for phrase in phrases:
-        must_have_terms.extend(phrase)
+    union_urls: Set[str] = set()
+    scoring_terms: List[str] = []
 
-    matching_urls = _intersect_postings(index, must_have_terms)
-    if not matching_urls:
+    for group in groups:
+        if not group.has_positive_anchor():
+            # A group of pure NOTs has nothing to score against; skip it
+            # rather than scanning the entire corpus.
+            continue
+        urls, group_terms = _resolve_group(index, group)
+        if not urls:
+            continue
+        union_urls |= urls
+        scoring_terms.extend(group_terms)
+
+    if not union_urls:
         return []
-
-    for phrase in phrases:
-        matching_urls = {
-            url for url in matching_urls if _has_phrase_at(index, url, phrase)
-        }
-        if not matching_urls:
-            return []
 
     total_docs = _count_total_documents(index)
     scored = [
-        (url, _score(index, must_have_terms, url, total_docs))
-        for url in matching_urls
+        (url, _score(index, scoring_terms, url, total_docs))
+        for url in union_urls
     ]
-    # Sort by score desc, then URL asc, for deterministic ordering.
     scored.sort(key=lambda pair: (-pair[1], pair[0]))
     return [url for url, _ in scored]
+
+
+def _resolve_group(
+    index: InvertedIndex, group: QueryGroup
+) -> "tuple[Set[str], List[str]]":
+    """Return ``(matching_urls, scoring_terms)`` for one OR-group."""
+    must_have = list(group.positives)
+    for phrase in group.phrases:
+        must_have.extend(phrase)
+
+    urls = _intersect_postings(index, must_have)
+    if not urls:
+        return set(), must_have
+
+    for phrase in group.phrases:
+        urls = {u for u in urls if _has_phrase_at(index, u, phrase)}
+        if not urls:
+            return set(), must_have
+
+    if group.negatives:
+        excluded: Set[str] = set()
+        for neg in group.negatives:
+            excluded |= set(index.get(neg, {}).keys())
+        urls -= excluded
+
+    return urls, must_have
 
 
 def _has_phrase_at(
