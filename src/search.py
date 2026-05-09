@@ -4,8 +4,17 @@ Two public entry points:
 
 * :func:`print_word` — pretty-prints the posting for a single term, used by
   the CLI's ``print`` command.
-* :func:`find` — answers an AND-query and returns the matching URLs ranked
-  by **TF-IDF**.
+* :func:`find` — answers a query and returns the matching URLs ranked by
+  **TF-IDF**.
+
+Query syntax (phase 1)
+----------------------
+
+* Bare words are AND'd together: ``good night`` matches pages containing
+  both terms.
+* ``"good night"`` (double-quoted) is a **phrase**: matches only pages
+  where the words appear at consecutive token positions, verified using
+  the position lists stored in the index.
 
 TF-IDF formula
 --------------
@@ -31,7 +40,8 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Dict, List, Set
+import re
+from typing import List, Set, Tuple
 
 from src.indexer import InvertedIndex, tokenize
 
@@ -69,38 +79,112 @@ def print_word(index: InvertedIndex, word: str) -> None:
         print(f"    positions: {positions}")
 
 
+_QUOTED_PHRASE = re.compile(r'"([^"]*)"')
+
+
+def parse_query(raw: str) -> Tuple[List[str], List[List[str]]]:
+    """Split a raw query into ``(singletons, phrases)``.
+
+    * ``singletons`` — bare tokens that must appear in every result
+      (AND-semantics, the existing default).
+    * ``phrases`` — each is a tokenised list whose words must appear at
+      *consecutive* positions in a matching document.
+    """
+    phrases: List[List[str]] = []
+
+    def _capture(match: "re.Match[str]") -> str:
+        toks = tokenize(match.group(1))
+        if toks:
+            phrases.append(toks)
+        return " "
+
+    remaining = _QUOTED_PHRASE.sub(_capture, raw)
+    singletons = tokenize(remaining)
+    return singletons, phrases
+
+
+def has_phrase(raw_query: str) -> bool:
+    """Return ``True`` if ``raw_query`` contains a ``"..."`` segment.
+
+    Used by the CLI to choose a phrase-aware result label without having
+    to re-parse the query.
+    """
+    return bool(_QUOTED_PHRASE.search(raw_query))
+
+
 def find(index: InvertedIndex, query: str) -> List[str]:
     """Return URLs matching ``query``, ranked by descending TF-IDF.
 
-    Multi-word queries use AND semantics — only documents containing
-    *every* query term survive the intersection. The surviving documents
-    are then ranked by the sum of TF-IDF scores across the query terms,
-    with ties broken alphabetically by URL.
+    Bare words use AND-semantics. ``"phrase"`` segments additionally
+    require those tokens to appear at consecutive positions, verified
+    against the index's position lists. Ties on score break by URL
+    alphabetical order for deterministic ordering.
 
     Args:
         index: The inverted index to query.
-        query: Free-text query string. Tokenised with the same rules as the
-            index, so case and punctuation don't matter.
+        query: Free-text query string.
 
     Returns:
         Ordered list of URLs (most relevant first). Empty list if the query
-        is empty or no document contains all terms.
+        is empty or no document satisfies every constraint.
     """
-    terms = tokenize(query)
-    if not terms:
+    singletons, phrases = parse_query(query)
+    if not singletons and not phrases:
         return []
 
-    matching_urls = _intersect_postings(index, terms)
+    must_have_terms = list(singletons)
+    for phrase in phrases:
+        must_have_terms.extend(phrase)
+
+    matching_urls = _intersect_postings(index, must_have_terms)
     if not matching_urls:
         return []
 
+    for phrase in phrases:
+        matching_urls = {
+            url for url in matching_urls if _has_phrase_at(index, url, phrase)
+        }
+        if not matching_urls:
+            return []
+
     total_docs = _count_total_documents(index)
     scored = [
-        (url, _score(index, terms, url, total_docs)) for url in matching_urls
+        (url, _score(index, must_have_terms, url, total_docs))
+        for url in matching_urls
     ]
     # Sort by score desc, then URL asc, for deterministic ordering.
     scored.sort(key=lambda pair: (-pair[1], pair[0]))
     return [url for url, _ in scored]
+
+
+def _has_phrase_at(
+    index: InvertedIndex, url: str, phrase_tokens: List[str]
+) -> bool:
+    """Return ``True`` iff ``phrase_tokens`` appear at consecutive positions in ``url``.
+
+    Implementation: collect each token's position set in ``url``;
+    a phrase match exists iff some position ``p`` is in token-0's set,
+    ``p+1`` in token-1's set, and so on through the end of the phrase.
+    Single-token phrases trivially match iff the word appears at all.
+    """
+    if not phrase_tokens:
+        return True
+    position_sets: List[Set[int]] = []
+    for tok in phrase_tokens:
+        entry = index.get(tok, {}).get(url)
+        if entry is None:
+            return False
+        positions = entry.get("positions", [])
+        if not isinstance(positions, list):
+            return False
+        position_sets.append({int(p) for p in positions})
+    if len(phrase_tokens) == 1:
+        return bool(position_sets[0])
+    for start in position_sets[0]:
+        if all((start + offset) in position_sets[offset]
+               for offset in range(1, len(phrase_tokens))):
+            return True
+    return False
 
 
 # --------------------------------------------------------------------------- #

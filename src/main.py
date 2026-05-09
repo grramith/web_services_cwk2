@@ -22,7 +22,7 @@ from typing import Callable, Dict, List, Optional
 from src.config import BASE_URL, DEFAULT_INDEX_PATH
 from src.crawler import CrawlError, Crawler
 from src.indexer import Indexer, InvertedIndex
-from src.search import find, print_word
+from src.search import find, has_phrase, print_word
 from src.storage import IndexNotFoundError, load_index, save_index
 
 
@@ -184,7 +184,12 @@ class Shell:
         if not results:
             print("No results.")
             return
-        print(f"{len(results)} result(s) for {query!r} (ranked by TF-IDF):")
+        if has_phrase(query):
+            print(f"Phrase search: {query}")
+            header = f"{len(results)} result(s) (ranked by TF-IDF):"
+        else:
+            header = f"{len(results)} result(s) for {query!r} (ranked by TF-IDF):"
+        print(header)
         for rank, url in enumerate(results, start=1):
             print(f"  {rank}. {url}")
 

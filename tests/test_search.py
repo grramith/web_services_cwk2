@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from src.indexer import Indexer, InvertedIndex
-from src.search import find, print_word
+from src.search import find, has_phrase, parse_query, print_word
 
 
 # --------------------------------------------------------------------------- #
@@ -170,6 +170,78 @@ def test_find_is_case_insensitive(small_index: InvertedIndex) -> None:
 def test_find_strips_query_punctuation(small_index: InvertedIndex) -> None:
     """``good, night!`` must match the page that contains both terms."""
     assert find(small_index, "good, night!") == ["http://a/"]
+
+
+# --------------------------------------------------------------------------- #
+# parse_query                                                                 #
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_query_no_quotes_returns_only_singletons() -> None:
+    singletons, phrases = parse_query("good morning friends")
+    assert singletons == ["good", "morning", "friends"]
+    assert phrases == []
+
+
+def test_parse_query_extracts_quoted_phrase() -> None:
+    singletons, phrases = parse_query('"good night"')
+    assert singletons == []
+    assert phrases == [["good", "night"]]
+
+
+def test_parse_query_mixes_phrase_and_singletons() -> None:
+    singletons, phrases = parse_query('cat "good night" dog')
+    assert singletons == ["cat", "dog"]
+    assert phrases == [["good", "night"]]
+
+
+def test_has_phrase_detects_quotes() -> None:
+    assert has_phrase('find "good night"')
+    assert not has_phrase("find good night")
+
+
+# --------------------------------------------------------------------------- #
+# find: phrase queries                                                        #
+# --------------------------------------------------------------------------- #
+
+
+def test_find_phrase_requires_consecutive_positions() -> None:
+    """Only documents where phrase tokens are *adjacent* should match."""
+    pages = {
+        "http://adjacent/": "<p>good night world</p>",
+        "http://separated/": "<p>good morning night</p>",
+    }
+    idx = Indexer().build_index(pages)
+
+    assert find(idx, '"good night"') == ["http://adjacent/"]
+
+
+def test_find_phrase_respects_order() -> None:
+    """``"good night"`` must NOT match a page that only has ``night good``."""
+    pages = {
+        "http://forward/": "<p>good night</p>",
+        "http://reversed/": "<p>night good</p>",
+    }
+    idx = Indexer().build_index(pages)
+
+    assert find(idx, '"good night"') == ["http://forward/"]
+
+
+def test_find_single_word_phrase_works(small_index: InvertedIndex) -> None:
+    """A one-token phrase reduces to a normal lookup."""
+    assert find(small_index, '"morning"') == ["http://b/"]
+
+
+def test_find_phrase_with_extra_singleton_intersects() -> None:
+    """``"good night" friends`` keeps only docs with the phrase AND ``friends``."""
+    pages = {
+        "http://both/": "<p>good night with friends</p>",
+        "http://no_phrase/": "<p>good morning night friends</p>",
+        "http://no_friend/": "<p>good night alone</p>",
+    }
+    idx = Indexer().build_index(pages)
+
+    assert find(idx, '"good night" friends') == ["http://both/"]
 
 
 def test_find_deterministic_on_score_ties() -> None:
