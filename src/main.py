@@ -23,10 +23,12 @@ from src.config import BASE_URL, DEFAULT_INDEX_PATH
 from src.crawler import CrawlError, Crawler
 from src.indexer import Indexer, InvertedIndex
 from src.search import (
+    extract_snippet,
     find_with_suggestions,
     has_operators,
     has_phrase,
     print_word,
+    query_positive_terms,
 )
 from src.storage import IndexNotFoundError, load_index, save_index
 
@@ -205,8 +207,15 @@ class Shell:
         else:
             header = f"{len(results)} result(s) for {query!r} (ranked by TF-IDF):"
         print(header)
+        snippet_terms = query_positive_terms(query)
+        ansi = sys.stdout.isatty()
         for rank, url in enumerate(results, start=1):
             print(f"  {rank}. {url}")
+            snippet = extract_snippet(
+                self.index, url, snippet_terms, ansi=ansi
+            )
+            if snippet:
+                print(f"     {snippet}")
 
 
 def main(argv: Optional[List[str]] = None) -> int:

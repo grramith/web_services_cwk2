@@ -222,9 +222,135 @@ def _resolve_phrase_placeholder(
     return None
 
 
+def reconstruct_tokens(index: InvertedIndex, url: str) -> List[str]:
+    """Rebuild the original token stream of ``url`` from its position lists.
+
+    Every token added to the index recorded its 0-indexed position inside
+    the document (see :class:`src.indexer.Indexer`), so the document can
+    be reconstructed by collecting ``(position, term)`` pairs from every
+    posting that mentions ``url`` and sorting by position. This is
+    O(V + |D|) per call where V is the vocabulary size; the cost is paid
+    only when a snippet is requested, not on every query.
+
+    Args:
+        index: The inverted index to consult.
+        url: The document whose tokens should be reconstructed.
+
+    Returns:
+        Tokens of the document in original order. Empty list if the URL
+        is not present in any posting.
+    """
+    by_position: List[Tuple[int, str]] = []
+    for term, posting in index.items():
+        entry = posting.get(url)
+        if entry is None:
+            continue
+        for pos in entry.get("positions", []):
+            by_position.append((int(pos), term))
+    by_position.sort()
+    return [tok for _, tok in by_position]
+
+
+_ANSI_BOLD = "\x1b[1m"
+_ANSI_RESET = "\x1b[22m"
+
+
+def extract_snippet(
+    index: InvertedIndex,
+    url: str,
+    query_terms: List[str],
+    *,
+    window: int = 8,
+    ansi: bool = False,
+) -> str:
+    """Return a `±window`-token snippet around the first query-term hit.
+
+    The snippet is built from the document reconstruction returned by
+    :func:`reconstruct_tokens`. The first occurrence of any query term
+    anchors the window; matched terms inside the window are wrapped in
+    bold markers — ANSI escape codes when ``ansi=True``, ``**...**``
+    markdown otherwise — so the same helper drives both terminal output
+    and copy/paste-friendly markdown.
+
+    Args:
+        index: The inverted index providing positions.
+        url: Document to snippet.
+        query_terms: Already-tokenised query terms (lowercased,
+            punctuation-stripped). Empty input returns an empty string.
+        window: Number of tokens to include on either side of the first
+            match. Defaults to 8 per the project specification.
+        ansi: When ``True``, wrap matched terms with ANSI bold codes;
+            otherwise wrap them in ``**...**`` markdown markers.
+
+    Returns:
+        The snippet string, or ``""`` if the URL has no tokens or no
+        query term appears in it.
+    """
+    if not query_terms:
+        return ""
+    tokens = reconstruct_tokens(index, url)
+    if not tokens:
+        return ""
+
+    query_set = {t for t in query_terms if t}
+    if not query_set:
+        return ""
+
+    first_match: int | None = next(
+        (i for i, tok in enumerate(tokens) if tok in query_set), None
+    )
+    if first_match is None:
+        return ""
+
+    start = max(0, first_match - window)
+    end = min(len(tokens), first_match + window + 1)
+    if ansi:
+        left, right = _ANSI_BOLD, _ANSI_RESET
+    else:
+        left, right = "**", "**"
+
+    rendered: List[str] = []
+    for tok in tokens[start:end]:
+        if tok in query_set:
+            rendered.append(f"{left}{tok}{right}")
+        else:
+            rendered.append(tok)
+
+    snippet = " ".join(rendered)
+    if start > 0:
+        snippet = "... " + snippet
+    if end < len(tokens):
+        snippet = snippet + " ..."
+    return snippet
+
+
 def has_phrase(raw_query: str) -> bool:
     """Return ``True`` if ``raw_query`` contains a ``"..."`` segment."""
     return bool(_QUOTED_PHRASE.search(raw_query))
+
+
+def query_positive_terms(raw_query: str) -> List[str]:
+    """Flatten ``raw_query`` into the positive terms used for snippet matching.
+
+    Positive terms are the union of every OR-group's ``positives`` and
+    ``phrases`` token lists. Negatives are skipped — they exclude
+    documents but never appear in a result, so highlighting them would
+    be misleading.
+
+    Args:
+        raw_query: The user's raw query string.
+
+    Returns:
+        Lowercased, punctuation-free terms in the order the parser saw
+        them. Duplicates are preserved so the caller can decide whether
+        to dedupe.
+    """
+    out: List[str] = []
+    for group in parse_query(raw_query):
+        out.extend(group.positives)
+        for phrase in group.phrases:
+            out.extend(phrase)
+    return out
 
 
 def has_operators(raw_query: str) -> bool:
