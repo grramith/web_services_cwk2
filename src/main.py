@@ -29,7 +29,8 @@ from src.storage import IndexNotFoundError, load_index, save_index
 PROMPT = "> "
 HELP_TEXT = (
     "Available commands:\n"
-    "  build              crawl the site and build a fresh index\n"
+    "  build [max_pages]  crawl the site and build a fresh index\n"
+    "                     (optional cap: 'build 10' fetches at most 10 pages)\n"
     "  load               load the saved index from data/index.json\n"
     "  print <word>       show the index entry for one word\n"
     "  find <query>       search (multi-word = AND, ranked by TF-IDF)\n"
@@ -113,11 +114,30 @@ class Shell:
     def cmd_help(self, _args: List[str]) -> None:
         print(HELP_TEXT)
 
-    def cmd_build(self, _args: List[str]) -> None:
-        """Crawl, index, and save."""
-        print(f"Crawling {BASE_URL} (this respects a 6-second politeness window)...")
+    def cmd_build(self, args: List[str]) -> None:
+        """Crawl, index, and save. Optional first arg caps the page count."""
+        max_pages: Optional[int] = None
+        if args and args[0].strip():
+            token = args[0].split()[0]
+            try:
+                max_pages = int(token)
+                if max_pages <= 0:
+                    raise ValueError
+            except ValueError:
+                print(f"Usage: build [max_pages]  (got {token!r})")
+                return
+
+        cap_note = f" (capped at {max_pages} pages)" if max_pages else ""
+        print(
+            f"Crawling {BASE_URL}{cap_note}. "
+            f"A 6-second politeness delay runs between every request, "
+            f"so the full site takes a few minutes — progress prints below."
+        )
         try:
-            pages = Crawler().crawl(BASE_URL)
+            pages = Crawler(max_pages=max_pages).crawl(
+                BASE_URL,
+                on_page=lambda url, n: print(f"  [{n}] fetched {url}", flush=True),
+            )
         except CrawlError as exc:
             print(f"Crawl aborted: {exc}")
             return

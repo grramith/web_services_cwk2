@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from typing import Dict, Iterable, Optional, Set
+from typing import Callable, Dict, Iterable, Optional, Set
 from urllib.parse import urldefrag, urljoin, urlparse
 
 import requests
@@ -83,11 +83,18 @@ class Crawler:
     # Public API                                                          #
     # ------------------------------------------------------------------ #
 
-    def crawl(self, start_url: str) -> Dict[str, str]:
+    def crawl(
+        self,
+        start_url: str,
+        on_page: Optional[Callable[[str, int], None]] = None,
+    ) -> Dict[str, str]:
         """Crawl outward from ``start_url`` and return ``{url: html}``.
 
         Args:
             start_url: Seed URL. Must live on :attr:`allowed_domain`.
+            on_page: Optional callback invoked after each successful fetch
+                with ``(url, page_count)``. Used by the CLI to stream
+                progress to the user during the long politeness-bound crawl.
 
         Returns:
             Mapping from canonicalised URL to the raw HTML body of the page.
@@ -133,6 +140,8 @@ class Crawler:
                 continue
 
             results[url] = html
+            if on_page is not None:
+                on_page(url, len(results))
 
             for link in self._extract_links(html, base_url=url):
                 if link not in visited:
