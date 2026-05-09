@@ -7,10 +7,12 @@ import pytest
 from src.indexer import Indexer, InvertedIndex
 from src.search import (
     find,
+    find_with_suggestions,
     has_operators,
     has_phrase,
     parse_query,
     print_word,
+    suggest_terms,
 )
 
 
@@ -362,6 +364,73 @@ def test_find_or_with_not_in_one_arm() -> None:
     idx = Indexer().build_index(pages)
     result = set(find(idx, "love NOT hate OR fish"))
     assert result == {"http://love_only/", "http://fish/"}
+
+
+# --------------------------------------------------------------------------- #
+# Did-you-mean suggestions                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_suggest_terms_offers_close_matches(small_index: InvertedIndex) -> None:
+    """A one-character typo must surface the original word as a suggestion."""
+    suggestions = suggest_terms(small_index, "frients")
+    assert "friends" in suggestions
+
+
+def test_suggest_terms_returns_empty_for_total_mismatch(
+    small_index: InvertedIndex,
+) -> None:
+    """A wholly unrelated query string must not produce noisy suggestions."""
+    assert suggest_terms(small_index, "xyzzy") == []
+
+
+def test_suggest_terms_returns_empty_for_empty_index() -> None:
+    assert suggest_terms({}, "anything") == []
+
+
+def test_print_word_missing_includes_did_you_mean(
+    small_index: InvertedIndex, capsys: pytest.CaptureFixture[str]
+) -> None:
+    print_word(small_index, "frients")
+    out = capsys.readouterr().out
+    assert "Did you mean" in out
+    assert "friends" in out
+
+
+def test_print_word_missing_no_close_match_omits_hint(
+    small_index: InvertedIndex, capsys: pytest.CaptureFixture[str]
+) -> None:
+    print_word(small_index, "xyzzy")
+    out = capsys.readouterr().out
+    assert "not in the index" in out
+    assert "Did you mean" not in out
+
+
+def test_find_with_suggestions_returns_hints_for_missing_terms(
+    small_index: InvertedIndex,
+) -> None:
+    results, suggestions = find_with_suggestions(small_index, "frients")
+    assert results == []
+    assert suggestions
+    missing_term, candidates = suggestions[0]
+    assert missing_term == "frients"
+    assert "friends" in candidates
+
+
+def test_find_with_suggestions_silent_on_total_mismatch(
+    small_index: InvertedIndex,
+) -> None:
+    results, suggestions = find_with_suggestions(small_index, "xyzzy")
+    assert results == []
+    assert suggestions == []
+
+
+def test_find_with_suggestions_no_hints_when_query_matches(
+    small_index: InvertedIndex,
+) -> None:
+    results, suggestions = find_with_suggestions(small_index, "good")
+    assert results
+    assert suggestions == []
 
 
 def test_find_deterministic_on_score_ties() -> None:

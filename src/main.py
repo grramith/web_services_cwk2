@@ -22,7 +22,12 @@ from typing import Callable, Dict, List, Optional
 from src.config import BASE_URL, DEFAULT_INDEX_PATH
 from src.crawler import CrawlError, Crawler
 from src.indexer import Indexer, InvertedIndex
-from src.search import find, has_operators, has_phrase, print_word
+from src.search import (
+    find_with_suggestions,
+    has_operators,
+    has_phrase,
+    print_word,
+)
 from src.storage import IndexNotFoundError, load_index, save_index
 
 
@@ -180,9 +185,16 @@ class Shell:
             print("No index loaded — run 'build' or 'load' first.")
             return
         query = args[0]
-        results = find(self.index, query)
+        results, suggestions = find_with_suggestions(self.index, query)
         if not results:
-            print("No results.")
+            if suggestions:
+                hints = "; ".join(
+                    f"'{term}' → {', '.join(candidates)}"
+                    for term, candidates in suggestions
+                )
+                print(f"No results. Did you mean: {hints}?")
+            else:
+                print("No results.")
             return
         if has_operators(query):
             print(f"Boolean query: {query}")

@@ -45,23 +45,44 @@ deterministic — important for testability.
 
 from __future__ import annotations
 
+import difflib
 import logging
 import math
 import re
 from dataclasses import dataclass, field
-from typing import List, Set
+from typing import List, Set, Tuple
 
 from src.indexer import InvertedIndex, tokenize
 
 logger = logging.getLogger(__name__)
 
 
+def suggest_terms(
+    index: InvertedIndex,
+    term: str,
+    n: int = 3,
+    cutoff: float = 0.7,
+) -> List[str]:
+    """Return up to ``n`` indexed terms close to ``term`` by edit distance.
+
+    Uses :func:`difflib.get_close_matches`, which ranks candidates by a
+    Ratcliff/Obershelp similarity score. The default cutoff of 0.7 trades
+    some recall for precision so a typo like ``lvoe`` reliably suggests
+    ``love`` without flooding totally unrelated near-matches.
+    """
+    if not term or not index:
+        return []
+    return difflib.get_close_matches(term, list(index.keys()), n=n, cutoff=cutoff)
+
+
 def print_word(index: InvertedIndex, word: str) -> None:
     """Print the inverted-index entry for ``word`` to stdout.
 
     The output lists each URL containing the word, its frequency on that
-    page, and the positions where it occurs. If the word does not appear in
-    the index a friendly message is printed instead.
+    page, and the positions where it occurs. If the word does not appear
+    in the index a friendly message is printed; if any near-spelling
+    matches exist a "Did you mean" hint is appended so a single typo
+    doesn't end the user's session.
 
     Args:
         index: The inverted index to query.
@@ -74,7 +95,14 @@ def print_word(index: InvertedIndex, word: str) -> None:
 
     posting = index.get(key)
     if not posting:
-        print(f"'{key}' is not in the index.")
+        suggestions = suggest_terms(index, key)
+        if suggestions:
+            print(
+                f"'{key}' is not in the index. "
+                f"Did you mean: {', '.join(suggestions)}?"
+            )
+        else:
+            print(f"'{key}' is not in the index.")
         return
 
     print(f"'{key}' appears in {len(posting)} document(s):")
@@ -248,6 +276,35 @@ def find(index: InvertedIndex, query: str) -> List[str]:
     ]
     scored.sort(key=lambda pair: (-pair[1], pair[0]))
     return [url for url, _ in scored]
+
+
+def find_with_suggestions(
+    index: InvertedIndex, query: str
+) -> Tuple[List[str], List[Tuple[str, List[str]]]]:
+    """Run :func:`find` and additionally suggest replacements for missing terms.
+
+    Returns ``(results, suggestions)`` where ``suggestions`` is a list of
+    ``(missing_term, [candidate, ...])`` pairs — empty when the query
+    succeeded or when no near-matches were found. The CLI uses this to
+    print a "Did you mean: ..." hint after a no-results query.
+    """
+    results = find(index, query)
+    if results:
+        return results, []
+    suggestions: List[Tuple[str, List[str]]] = []
+    seen: Set[str] = set()
+    for group in parse_query(query):
+        candidate_terms: List[str] = list(group.positives)
+        for phrase in group.phrases:
+            candidate_terms.extend(phrase)
+        for term in candidate_terms:
+            if term in seen or term in index:
+                continue
+            seen.add(term)
+            hints = suggest_terms(index, term)
+            if hints:
+                suggestions.append((term, hints))
+    return results, suggestions
 
 
 def _resolve_group(
