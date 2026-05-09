@@ -61,6 +61,18 @@ class Shell:
     """
 
     def __init__(self, index_path: str = DEFAULT_INDEX_PATH) -> None:
+        """Construct an empty REPL.
+
+        Args:
+            index_path: Filesystem location used by ``build`` /
+                ``load`` for persistent storage. Tests override this
+                to point at a temporary path.
+
+        Initial state is "no index loaded, stemming off"; ``build`` or
+        ``load`` populate :attr:`index`, and ``load`` may flip
+        :attr:`stem` on if the on-disk metadata says the index was
+        built with the Porter stemmer.
+        """
         self.index_path = index_path
         self.index: Optional[InvertedIndex] = None
         self.stem: bool = False
@@ -126,6 +138,13 @@ class Shell:
     # ------------------------------------------------------------------ #
 
     def cmd_help(self, _args: List[str]) -> None:
+        """Print the built-in command reference.
+
+        Args:
+            _args: Ignored — ``help`` accepts no arguments. The leading
+                underscore signals that the parameter exists only to
+                satisfy the dispatcher's uniform handler signature.
+        """
         print(HELP_TEXT)
 
     def cmd_build(self, args: List[str]) -> None:
@@ -181,6 +200,16 @@ class Shell:
         )
 
     def cmd_load(self, _args: List[str]) -> None:
+        """Replace the in-memory index with the one stored on disk.
+
+        Reads :attr:`index_path` and the matching ``.meta.json``
+        sidecar. Surface-level error messages are printed for the two
+        recoverable failure modes (missing file, malformed JSON) so
+        the REPL keeps running.
+
+        Args:
+            _args: Ignored — ``load`` accepts no arguments.
+        """
         try:
             self.index = load_index(self.index_path)
         except IndexNotFoundError as exc:
@@ -198,6 +227,18 @@ class Shell:
         )
 
     def cmd_print(self, args: List[str]) -> None:
+        """Display the inverted-index entry for one term.
+
+        Args:
+            args: Single-element list whose value is the rest of the
+                user's input line. Only the first whitespace-delimited
+                token of that string is treated as the lookup key —
+                anything after it is ignored, in line with the brief.
+
+        Prints a short usage hint when ``args`` is empty and a
+        "no index loaded" reminder when neither ``build`` nor
+        ``load`` has been run yet.
+        """
         if not args or not args[0].strip():
             print("Usage: print <word>")
             return
@@ -208,6 +249,26 @@ class Shell:
         print_word(self.index, word)
 
     def cmd_find(self, args: List[str]) -> None:
+        """Run a query against the loaded index and print the ranked URLs.
+
+        Recognises the full query language exposed by
+        :func:`src.search.find_with_suggestions` — bare words AND'd by
+        default, ``"..."`` for phrase search, uppercase
+        ``AND``/``OR``/``NOT`` operators, and edit-distance "did you
+        mean" hints when retrieval comes back empty. Each result line
+        is followed by a one-line snippet that highlights matched
+        terms in ANSI bold (TTY) or ``**markdown**`` (otherwise).
+
+        Args:
+            args: Single-element list whose value is the rest of the
+                user's input line. The full string is forwarded to the
+                search helpers verbatim so phrase-quoting rules behave
+                exactly as a user typing the same query at the prompt.
+
+        Prints a short usage hint when ``args`` is empty and a
+        "no index loaded" reminder when no index has been built or
+        loaded.
+        """
         if not args or not args[0].strip():
             print("Usage: find <query>")
             return

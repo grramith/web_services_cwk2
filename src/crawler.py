@@ -74,6 +74,29 @@ class Crawler:
         user_agent: str = USER_AGENT,
         max_pages: Optional[int] = None,
     ) -> None:
+        """Configure a crawler instance.
+
+        Args:
+            allowed_domain: Hostname the crawler is permitted to follow
+                links into. Links to any other host are silently dropped
+                during traversal.
+            delay: Seconds to wait between successive HTTP requests. The
+                value is rejected if it is below the project-wide
+                politeness floor (:data:`POLITENESS_DELAY_SECONDS`) so
+                an accidental override cannot make the live crawler
+                impolite.
+            timeout: Per-request timeout in seconds. A misbehaving
+                server cannot stall the whole crawl.
+            user_agent: ``User-Agent`` header sent on every request so
+                the operator of the target site can identify the
+                crawler.
+            max_pages: Optional safety cap on how many pages to fetch.
+                ``None`` means crawl until the link frontier is empty.
+
+        Raises:
+            CrawlError: If ``delay`` is less than
+                :data:`POLITENESS_DELAY_SECONDS`.
+        """
         if delay < POLITENESS_DELAY_SECONDS:
             # Guard against accidentally being too fast against the live site.
             # Tests can monkeypatch ``POLITENESS_DELAY_SECONDS`` if they need

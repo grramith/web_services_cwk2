@@ -134,6 +134,17 @@ class QueryGroup:
     negatives: List[str] = field(default_factory=list)
 
     def is_empty(self) -> bool:
+        """Return ``True`` if the group carries no constraints at all.
+
+        An empty group is produced when the user types an isolated
+        operator (``OR``, trailing ``AND``) or when every token in a
+        group fails tokenisation. The parser uses this as the signal
+        to discard the group instead of appending a no-op shell.
+
+        Returns:
+            ``True`` if no positives, phrases or negatives were
+            captured; ``False`` otherwise.
+        """
         return not (self.positives or self.phrases or self.negatives)
 
     def has_positive_anchor(self) -> bool:
@@ -157,6 +168,21 @@ def parse_query(raw: str, *, stem: bool = False) -> List[QueryGroup]:
     extracted_phrases: List[List[str]] = []
 
     def _capture(match: "re.Match[str]") -> str:
+        """Replace one ``"..."`` phrase with a placeholder sentinel.
+
+        Side effect: appends the tokenised phrase to the enclosing
+        ``extracted_phrases`` list so :func:`_resolve_phrase_placeholder`
+        can recover the tokens later. Phrases that tokenise to nothing
+        (e.g. ``""``) are silently dropped.
+
+        Args:
+            match: The ``re.Match`` object for one ``"..."`` segment.
+
+        Returns:
+            A whitespace-padded placeholder string the second-pass
+            tokeniser will recognise, or a single space when the
+            phrase was empty.
+        """
         toks = tokenize(match.group(1), stem=stem)
         if not toks:
             return " "
