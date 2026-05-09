@@ -1,7 +1,7 @@
 # Quotes Search Engine
 
 [![tests](https://github.com/grramith/web_services_cwk2/actions/workflows/tests.yml/badge.svg)](https://github.com/grramith/web_services_cwk2/actions/workflows/tests.yml)
-[![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)](./README.md#testing)
+[![coverage](https://img.shields.io/badge/coverage-96%25-brightgreen)](./README.md#testing)
 [![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](./.github/workflows/tests.yml)
 
 A command-line search engine that crawls [quotes.toscrape.com](https://quotes.toscrape.com/), builds an inverted index of the pages it visits, and answers user queries through an interactive shell.
@@ -49,18 +49,21 @@ https://quotes.toscrape.com/
 - Provides an interactive command-line shell
 - Supports the required `build`, `load`, `print`, and `find` commands
 - Supports single-word and multi-word queries
-- Ranks search results using TF-IDF
+- Ranks search results using TF-IDF, with an alternative BM25 implementation in `src/ranking.py`
 - Supports phrase search using stored token positions
 - Supports basic Boolean query processing
 - Provides spelling suggestions for missing terms
+- Optional Porter stemming via the `--stem` flag on `build` (default off, the index records which mode was used)
+- Highlighted result snippets around the first matching token in `find`
+- Includes a benchmarking harness (`benchmarks/run_benchmarks.py`) and a Precision@k / MRR evaluation harness (`evaluation/evaluate.py`) comparing TF-IDF and BM25
 - Handles common errors with user-friendly messages
-- Includes an automated test suite using mocked HTTP requests
+- Includes an automated test suite using mocked HTTP requests, with GitHub Actions running it on Python 3.11 and 3.12
 
 ## Command Summary
 
 | Command | Purpose |
 | ------- | ------- |
-| `build [max_pages]` | Crawl the site, build a fresh index, and save it to disk. The optional page cap is useful for short demonstrations. |
+| `build [max_pages] [--stem]` | Crawl the site, build a fresh index, and save it to disk. The optional page cap is useful for short demonstrations. The `--stem` flag enables Porter stemming for both indexing and querying; without it, exact-form matching (the default) is preserved. |
 | `load` | Load a previously saved index from `data/index.json`. |
 | `print <word>` | Show the index entry for a single word, including URLs, frequency, and positions. |
 | `find <query>` | Search the index. Results are ranked by TF-IDF. |
@@ -71,12 +74,16 @@ https://quotes.toscrape.com/
 
 ```text
 .
+├── .github/
+│   └── workflows/
+│       └── tests.yml       # GitHub Actions CI (Python 3.11 and 3.12)
 ├── src/
 │   ├── __init__.py
 │   ├── config.py
 │   ├── crawler.py
 │   ├── indexer.py
 │   ├── main.py
+│   ├── ranking.py          # TF-IDF and BM25 scoring functions
 │   ├── search.py
 │   └── storage.py
 ├── tests/
@@ -85,8 +92,20 @@ https://quotes.toscrape.com/
 │   ├── test_indexer.py
 │   ├── test_integration.py
 │   ├── test_main.py
+│   ├── test_performance.py
+│   ├── test_ranking.py
 │   ├── test_search.py
+│   ├── test_snippets.py
+│   ├── test_stemming.py
 │   └── test_storage.py
+├── benchmarks/
+│   ├── run_benchmarks.py   # build / load / query timing harness
+│   └── results.json        # latest benchmark output
+├── evaluation/
+│   ├── evaluate.py         # Precision@k and MRR for TF-IDF vs BM25
+│   ├── queries.json        # hand-labelled ground-truth queries
+│   ├── results.json        # latest evaluation output
+│   └── README.md           # methodology notes
 ├── data/
 │   ├── .gitkeep            # committed, preserves the directory
 │   └── index.json          # produced by `build`, gitignored
@@ -103,9 +122,10 @@ The codebase is split into single-responsibility modules. This makes the system 
 src/
 ├── config.py    shared constants such as base URL, politeness delay, and default paths
 ├── crawler.py   polite breadth-first crawler with error handling
-├── indexer.py   HTML cleanup, tokenisation, and inverted index construction
-├── storage.py   JSON save and load functions
-├── search.py    print, find, TF-IDF ranking, Boolean queries, and suggestions
+├── indexer.py   HTML cleanup, tokenisation (with optional Porter stemming), and inverted index construction
+├── storage.py   JSON save and load functions, plus stemming metadata
+├── ranking.py   TF-IDF and BM25 scoring functions used by `search` and `evaluation`
+├── search.py    print, find, query parsing, Boolean queries, snippets, and suggestions
 └── main.py      interactive command-line shell
 ```
 
@@ -176,6 +196,16 @@ The saved index is written to:
 data/index.json
 ```
 
+### `src/ranking.py`
+
+The ranking module isolates the scoring functions so they can be reused by the search engine and the evaluation harness without coupling either side to the other.
+
+It exposes:
+
+- `tfidf_score`: the formula used by `find`, matching the brief's definition.
+- `bm25_score`: a probabilistic ranker with `k1=1.5` and `b=0.75` defaults, used by the evaluation harness as an alternative baseline.
+- helpers for total document count, per-document length, and average document length, computed directly from the inverted index so the rankers do not need access to the original HTML.
+
 ### `src/search.py`
 
 The search module handles query processing and result ranking. It provides the logic behind the `print` and `find` commands.
@@ -187,8 +217,10 @@ It supports:
 - multi-word search
 - phrase search
 - basic Boolean query handling
-- TF-IDF ranking
+- TF-IDF ranking (delegated to `src/ranking.py`)
+- result snippets with term highlighting
 - spelling suggestions for failed queries
+- query-time application of the same Porter stemmer used at build time when the loaded index was built with `--stem`
 
 ### `src/main.py`
 
@@ -219,6 +251,7 @@ pip install -r requirements.txt
 | ------- | ------- |
 | `requests` | Sends HTTP requests in the crawler. |
 | `beautifulsoup4` | Parses HTML and extracts links/text. |
+| `nltk` | Provides the Porter stemmer used by the optional `--stem` indexing mode. |
 | `pytest` | Runs the automated tests. |
 | `pytest-cov` | Produces coverage reports. |
 
@@ -430,6 +463,8 @@ Where:
 
 For multi-word queries, the per-term scores are summed. Results are then sorted by score. Ties are broken alphabetically by URL so the output is deterministic and testable.
 
+A second ranker, **Okapi BM25**, lives in `src/ranking.py` (`bm25_score`, `k1=1.5`, `b=0.75`). The CLI `find` command always uses TF-IDF; BM25 is exercised by the evaluation harness in `evaluation/evaluate.py`, which runs both rankers over the hand-labelled queries in `evaluation/queries.json` and reports Precision@5 and Mean Reciprocal Rank for each. Reproduce with `python -m evaluation.evaluate`.
+
 ## Query Processing
 
 The search system supports several query types.
@@ -540,7 +575,7 @@ To run the tests with coverage:
 pytest --cov=src tests/ --cov-report=term-missing
 ```
 
-The current run reports **107 passing tests** with **94% line coverage** across `src/`. Per-module coverage is `crawler.py` 97%, `indexer.py` 100%, `search.py` 94%, `storage.py` 100%, `main.py` 88%, `config.py` 100%.
+The current run reports **165 passing tests** with **96% line coverage** across `src/`. Per-module coverage is `crawler.py` 97%, `indexer.py` 100%, `search.py` 95%, `storage.py` 100%, `ranking.py` 97%, `main.py` 93%, `config.py` 100%.
 
 The test suite uses mocked HTTP requests. This means the tests do not contact the live website and do not wait for the 6-second politeness delay. Instead, the tests check that the delay function is called correctly.
 
@@ -552,12 +587,16 @@ The tests cover the main system components.
 | --------- | ------------- |
 | `tests/test_crawler.py` | Politeness delay, link filtering, URL handling, duplicate prevention, and crawler errors. |
 | `tests/test_indexer.py` | Text extraction, tokenisation, case handling, frequency counts, and token positions. |
-| `tests/test_storage.py` | JSON save/load behaviour, missing file handling, and Unicode safety. |
+| `tests/test_storage.py` | JSON save/load behaviour, stemming-flag round-trip, missing file handling, and Unicode safety. |
 | `tests/test_search.py` | `print_word`, single-word search, multi-word search, Boolean queries, TF-IDF ranking, suggestions, and case-insensitive search. |
+| `tests/test_ranking.py` | TF-IDF and BM25 scoring functions, document length helpers, and ranker monotonicity properties. |
+| `tests/test_snippets.py` | Snippet extraction at start/end of document, overlapping matches, and term highlighting. |
+| `tests/test_stemming.py` | Stemmed and unstemmed indexing parity, query-time application of the stemmer, and on-disk stem flag preservation. |
+| `tests/test_performance.py` | Lightweight regression assertion that `find` returns within a generous threshold on a small mocked index. |
 | `tests/test_integration.py` | Full pipeline behaviour from crawl to index to save/load to search. |
-| `tests/test_main.py` | Command dispatch, invalid commands, and shell exit behaviour. |
+| `tests/test_main.py` | Command dispatch, invalid commands, `--stem` flag handling, and shell exit behaviour. |
 
-The current test suite contains 107 passing tests with 94% line coverage. This provides evidence that the main functionality and edge cases are covered.
+The current test suite contains 165 passing tests with 96% line coverage. This provides evidence that the main functionality and edge cases are covered.
 
 ## Error Handling
 
