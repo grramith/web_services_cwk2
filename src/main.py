@@ -25,10 +25,9 @@ from src.indexer import Indexer, InvertedIndex
 from src.search import (
     extract_snippet,
     find_with_suggestions,
-    has_operators,
-    has_phrase,
     print_word,
     query_positive_terms,
+    score_results,
 )
 from src.storage import (
     IndexNotFoundError,
@@ -289,24 +288,38 @@ class Shell:
             else:
                 print("No results.")
             return
-        if has_operators(query):
-            print(f"Boolean query: {query}")
-            header = f"{len(results)} result(s) (ranked by TF-IDF):"
-        elif has_phrase(query):
-            print(f"Phrase search: {query}")
-            header = f"{len(results)} result(s) (ranked by TF-IDF):"
-        else:
-            header = f"{len(results)} result(s) for {query!r} (ranked by TF-IDF):"
-        print(header)
+        print(f"Search results for: {query}")
+        print("Ranking method: TF-IDF")
+        print(f"Results found: {len(results)}")
+        print()
         snippet_terms = query_positive_terms(query, stem=self.stem)
         ansi = sys.stdout.isatty()
-        for rank, url in enumerate(results, start=1):
-            print(f"  {rank}. {url}")
+        scored = score_results(self.index, query, results, stem=self.stem)
+        for rank, (url, (score, freqs)) in enumerate(
+            zip(results, scored), start=1
+        ):
+            print(f"[{rank}] {url}")
+            print(f"    TF-IDF score : {score:.5f}")
+            if len(freqs) <= 1:
+                only_term = next(iter(freqs.keys()), None)
+                only_count = next(iter(freqs.values()), 0)
+                print(f"    Term frequency : {only_count} occurrence(s)")
+                if only_term is not None:
+                    print(f"    Matched term(s) : {only_term}")
+            else:
+                total = sum(freqs.values())
+                print(f"    Total frequency : {total} occurrence(s)")
+                print(f"    Matched terms : {', '.join(freqs.keys())}")
+                print("    Term breakdown:")
+                for term, count in freqs.items():
+                    print(f"      - {term}: {count} occurrence(s)")
             snippet = extract_snippet(
                 self.index, url, snippet_terms, ansi=ansi
             )
             if snippet:
-                print(f"     {snippet}")
+                print("    Snippet:")
+                print(f'    "{snippet}"')
+            print()
 
 
 def main(argv: Optional[List[str]] = None) -> int:

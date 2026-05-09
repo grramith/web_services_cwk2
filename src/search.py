@@ -50,7 +50,7 @@ import logging
 import math
 import re
 from dataclasses import dataclass, field
-from typing import List, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 from src.indexer import InvertedIndex, tokenize
 
@@ -439,6 +439,46 @@ def find(index: InvertedIndex, query: str, *, stem: bool = False) -> List[str]:
     ]
     scored.sort(key=lambda pair: (-pair[1], pair[0]))
     return [url for url, _ in scored]
+
+
+def score_results(
+    index: InvertedIndex,
+    query: str,
+    urls: List[str],
+    *,
+    stem: bool = False,
+) -> List[Tuple[float, Dict[str, int]]]:
+    """Return ``(score, {term: freq})`` per URL, parallel to ``urls``.
+
+    Mirrors :func:`find`'s scoring so the numbers displayed alongside a
+    ranked result are exactly the values that drove its rank.
+    """
+    groups = parse_query(query, stem=stem)
+    scoring_terms: List[str] = []
+    for group in groups:
+        if not group.has_positive_anchor():
+            continue
+        _, group_terms = _resolve_group(index, group)
+        scoring_terms.extend(group_terms)
+
+    seen: Set[str] = set()
+    display_terms: List[str] = []
+    for term in scoring_terms:
+        if term not in seen:
+            seen.add(term)
+            display_terms.append(term)
+
+    total_docs = _count_total_documents(index)
+    out: List[Tuple[float, Dict[str, int]]] = []
+    for url in urls:
+        score = _score(index, scoring_terms, url, total_docs)
+        freqs: Dict[str, int] = {}
+        for term in display_terms:
+            entry = index.get(term, {}).get(url)
+            if entry is not None:
+                freqs[term] = int(entry.get("frequency", 0))
+        out.append((score, freqs))
+    return out
 
 
 def find_with_suggestions(

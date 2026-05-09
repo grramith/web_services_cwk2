@@ -169,8 +169,9 @@ def test_find_returns_ranked_results(
 ) -> None:
     loaded_shell.dispatch("find hello")
     out = capsys.readouterr().out
-    assert "result(s) for 'hello'" in out
-    assert "TF-IDF" in out
+    assert "Search results for: hello" in out
+    assert "Ranking method: TF-IDF" in out
+    assert "Results found:" in out
     assert "http://a/" in out
     assert "http://b/" in out
 
