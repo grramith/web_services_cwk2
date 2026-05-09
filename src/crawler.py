@@ -15,6 +15,7 @@ HTML fixtures without ever hitting the network.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections import deque
 from typing import Callable, Dict, Iterable, Optional, Set
@@ -31,6 +32,15 @@ from src.config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Path prefixes that exist on the live site but never carry quote content.
+# Indexing them just dilutes TF-IDF with login-form boilerplate.
+_NON_CONTENT_PATHS: tuple[str, ...] = ("/login", "/logout")
+
+# Matches a trailing ``/page/1/`` (or ``/page/1``) segment. The first page of
+# any listing is always served at the un-suffixed URL too, so collapsing them
+# avoids indexing the same content twice.
+_PAGE_ONE_SUFFIX = re.compile(r"/page/1/?$")
 
 
 class CrawlError(Exception):
@@ -184,16 +194,29 @@ class Crawler:
         return response.text
 
     def _extract_links(self, html: str, base_url: str) -> Iterable[str]:
-        """Yield canonicalised, in-domain links found in ``html``."""
-        soup = BeautifulSoup(html, "html.parser")
+        """Yield canonicalised, in-domain, content links found in ``html``."""
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+        except Exception as exc:  # noqa: BLE001 — BS4 rarely raises, but never trust the network
+            logger.warning("Failed to parse HTML from %s: %s; skipping links.", base_url, exc)
+            return
         for anchor in soup.find_all("a", href=True):
             raw = anchor["href"]
             if not raw or raw.startswith(("mailto:", "javascript:", "tel:")):
                 continue
             absolute = urljoin(base_url, raw)
             absolute = self._canonicalise(absolute)
-            if self._is_internal(absolute):
-                yield absolute
+            if not self._is_internal(absolute):
+                continue
+            if self._is_non_content(absolute):
+                continue
+            yield absolute
+
+    @staticmethod
+    def _is_non_content(url: str) -> bool:
+        """Return ``True`` for paths that exist but carry no indexable quotes."""
+        path = urlparse(url).path
+        return any(path == p or path.startswith(p + "/") for p in _NON_CONTENT_PATHS)
 
     def _is_internal(self, url: str) -> bool:
         """Return ``True`` if ``url`` is on the allowed domain."""
@@ -202,11 +225,24 @@ class Crawler:
 
     @staticmethod
     def _canonicalise(url: str) -> str:
-        """Normalise a URL: drop fragments and lowercase the scheme/host."""
+        """Normalise a URL so equivalent variants compare equal.
+
+        Specifically:
+
+        * fragments (``#section``) are dropped — they refer to anchors
+          within the same document;
+        * scheme and host are lowercased — DNS is case-insensitive;
+        * a trailing ``/page/1/`` is stripped — the live site serves the
+          first page of every listing at the un-suffixed URL too, so
+          ``/`` and ``/page/1/`` (or ``/tag/love/`` and
+          ``/tag/love/page/1/``) point at byte-identical content. Without
+          this collapse those duplicates would be indexed twice and skew
+          term frequencies.
+        """
         url, _ = urldefrag(url)
         parsed = urlparse(url)
         netloc = parsed.netloc.lower()
         scheme = parsed.scheme.lower() or "https"
-        # Reconstruct without trailing whitespace artefacts.
-        rebuilt = parsed._replace(scheme=scheme, netloc=netloc).geturl()
+        path = _PAGE_ONE_SUFFIX.sub("/", parsed.path) if parsed.path else parsed.path
+        rebuilt = parsed._replace(scheme=scheme, netloc=netloc, path=path).geturl()
         return rebuilt

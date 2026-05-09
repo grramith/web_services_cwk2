@@ -30,7 +30,12 @@ def _make_response(status: int = 200, text: str = "") -> MagicMock:
 
 
 def _fake_site() -> Dict[str, str]:
-    """A tiny fake ``quotes.toscrape.com`` with a few internal links."""
+    """A tiny fake ``quotes.toscrape.com`` with a few internal links.
+
+    Uses ``/page/2/`` and ``/page/3/`` (not ``/page/1/``) because
+    ``/page/1/`` is now canonicalised to ``/`` — the live site serves
+    them as the same document.
+    """
     return {
         "https://quotes.toscrape.com/": (
             "<html><body>"
@@ -42,12 +47,13 @@ def _fake_site() -> Dict[str, str]:
         ),
         "https://quotes.toscrape.com/page/2/": (
             "<html><body>"
-            "<a href='/page/1/'>Back</a>"
+            "<a href='/page/3/'>Onward</a>"
+            "<a href='/'>Home</a>"
             "<p>more text</p>"
             "</body></html>"
         ),
-        "https://quotes.toscrape.com/page/1/": (
-            "<html><body><p>page one</p></body></html>"
+        "https://quotes.toscrape.com/page/3/": (
+            "<html><body><p>page three</p></body></html>"
         ),
     }
 
@@ -149,15 +155,15 @@ def test_crawl_deduplicates_visited_urls() -> None:
 
 
 def test_crawl_drops_fragment_identifiers() -> None:
-    """``/page/1/#quote-3`` and ``/page/1/`` are the same document."""
+    """``/page/2/#quote-3`` and ``/page/2/`` are the same document."""
     pages = {
         "https://quotes.toscrape.com/": (
             "<html><body>"
-            "<a href='/page/1/#a'>A</a>"
-            "<a href='/page/1/#b'>B</a>"
+            "<a href='/page/2/#a'>A</a>"
+            "<a href='/page/2/#b'>B</a>"
             "</body></html>"
         ),
-        "https://quotes.toscrape.com/page/1/": "<html>one</html>",
+        "https://quotes.toscrape.com/page/2/": "<html>two</html>",
     }
     counts: Dict[str, int] = {}
 
@@ -169,7 +175,7 @@ def test_crawl_drops_fragment_identifiers() -> None:
          patch("src.crawler.time.sleep"):
         Crawler().crawl("https://quotes.toscrape.com/")
 
-    assert counts["https://quotes.toscrape.com/page/1/"] == 1
+    assert counts["https://quotes.toscrape.com/page/2/"] == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -249,6 +255,84 @@ def test_crawl_rejects_external_start_url() -> None:
 # --------------------------------------------------------------------------- #
 # Bounds                                                                      #
 # --------------------------------------------------------------------------- #
+
+
+def test_canonicalise_collapses_page_one_suffix() -> None:
+    """``/page/1/`` is the same document as ``/`` — must collapse."""
+    assert Crawler._canonicalise(
+        "https://quotes.toscrape.com/page/1/"
+    ) == "https://quotes.toscrape.com/"
+    assert Crawler._canonicalise(
+        "https://quotes.toscrape.com/tag/love/page/1/"
+    ) == "https://quotes.toscrape.com/tag/love/"
+    # Non-first pages are left alone.
+    assert Crawler._canonicalise(
+        "https://quotes.toscrape.com/page/2/"
+    ) == "https://quotes.toscrape.com/page/2/"
+
+
+def test_crawl_does_not_double_visit_page_one_alias() -> None:
+    """Following both ``/`` and ``/page/1/`` must fetch only once."""
+    pages = {
+        "https://quotes.toscrape.com/": (
+            "<html><body>"
+            "<a href='/page/1/'>page-one alias</a>"
+            "<a href='/page/2/'>next</a>"
+            "</body></html>"
+        ),
+        "https://quotes.toscrape.com/page/2/": "<html>p2</html>",
+    }
+    counts: Dict[str, int] = {}
+
+    def fake_get(url: str, **_: object) -> MagicMock:
+        counts[url] = counts.get(url, 0) + 1
+        return _make_response(200, pages[url])
+
+    with patch("src.crawler.requests.get", side_effect=fake_get), \
+         patch("src.crawler.time.sleep"):
+        Crawler().crawl("https://quotes.toscrape.com/")
+
+    assert counts == {
+        "https://quotes.toscrape.com/": 1,
+        "https://quotes.toscrape.com/page/2/": 1,
+    }
+
+
+def test_crawl_skips_login_and_logout_paths() -> None:
+    """``/login`` and ``/logout`` carry no quote content and must be skipped."""
+    pages = {
+        "https://quotes.toscrape.com/": (
+            "<html><body>"
+            "<a href='/login'>login</a>"
+            "<a href='/logout'>logout</a>"
+            "<a href='/page/2/'>next</a>"
+            "</body></html>"
+        ),
+        "https://quotes.toscrape.com/page/2/": "<html>p2</html>",
+    }
+    seen: list[str] = []
+
+    def fake_get(url: str, **_: object) -> MagicMock:
+        seen.append(url)
+        return _make_response(200, pages[url])
+
+    with patch("src.crawler.requests.get", side_effect=fake_get), \
+         patch("src.crawler.time.sleep"):
+        Crawler().crawl("https://quotes.toscrape.com/")
+
+    assert not any("/login" in u or "/logout" in u for u in seen)
+
+
+def test_extract_links_tolerates_bs4_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A BeautifulSoup exception must not abort the crawl."""
+
+    def boom(*_a: object, **_kw: object) -> None:
+        raise RuntimeError("synthetic parser failure")
+
+    monkeypatch.setattr("src.crawler.BeautifulSoup", boom)
+    crawler = Crawler()
+    # Should yield nothing, not raise.
+    assert list(crawler._extract_links("<html></html>", "https://quotes.toscrape.com/")) == []
 
 
 def test_max_pages_caps_results() -> None:

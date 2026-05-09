@@ -43,10 +43,11 @@ FIXTURE_PAGES: Dict[str, str] = {
             <span class="text">It is our choices that show what we truly are</span>
             <span class="author">J. K. Rowling</span>
           </div>
-          <a href="/page/1/">Back</a>
+          <a href="/page/3/">Next</a>
+          <a href="/">Home</a>
         </body></html>
     """,
-    "https://quotes.toscrape.com/page/1/": """
+    "https://quotes.toscrape.com/page/3/": """
         <html><body>
           <div class="quote">
             <span class="text">There is no friend as loyal as a book</span>
@@ -93,9 +94,9 @@ def test_crawl_index_save_load_find(tmp_path: Path) -> None:
 
     # Single-term query.
     assert find(reloaded, "Einstein") == ["https://quotes.toscrape.com/"]
-    # AND-query: only page 1 has both ``friend`` and ``book``.
+    # AND-query: only page 3 has both ``friend`` and ``book``.
     assert find(reloaded, "friend book") == [
-        "https://quotes.toscrape.com/page/1/"
+        "https://quotes.toscrape.com/page/3/"
     ]
     # Multi-term query that no document satisfies.
     assert find(reloaded, "einstein book") == []
