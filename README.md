@@ -13,6 +13,7 @@ Coursework submission for **COMP3011 Web Services and Web Data**, University of 
 - [Inverted Index Design](#inverted-index-design)
 - [TF-IDF Ranking](#tf-idf-ranking)
 - [Complexity](#complexity)
+- [Benchmarks](#benchmarks)
 - [Testing](#testing)
 - [GenAI Declaration](#genai-declaration-and-reflection)
 - [References](#references-and-resources)
@@ -476,6 +477,31 @@ This section summarises the main operations.
 | Saving/loading | `O(I)` | `I` is the size of the JSON index file. |
 
 The crawler is intentionally slower than the indexing and search logic because it must respect the required 6-second politeness delay.
+
+## Benchmarks
+
+The numbers below come from `python -m benchmarks.run_benchmarks`, run on the
+committed `data/index.json` (4 574 terms / 202 pages / 2 796 791 bytes). The
+harness is deterministic — the build measurement uses a seeded synthetic
+fixture so reruns produce stable numbers, and the query measurement samples 50
+distinct vocabulary terms from the same RNG seed.
+
+| Measurement | Value | Notes |
+| --- | --- | --- |
+| Build (synthetic fixture) | **11.22 ms** | 50 pages, 12 600 tokens |
+| Load `data/index.json` | **16.90 ms** | 4 574 terms |
+| Mean query (warm) | **1.459 ms** | median 0.804 ms / max 7.771 ms over 50 terms |
+| Index size on disk | **2 731.2 KiB** | 2 796 791 bytes |
+
+A single warm-up call is discarded from the query timings so import-time and
+first-touch cache effects do not skew the average. The full report (including
+the median and max) is persisted to `benchmarks/results.json`.
+
+Reproduce with:
+
+```bash
+python -m benchmarks.run_benchmarks
+```
 
 ## Testing
 
