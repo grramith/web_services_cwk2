@@ -632,6 +632,15 @@ pass the test suite locally.
 
 ## References and Resources
 
+### Academic references
+
+- Manning, C. D., Raghavan, P., & Schütze, H. (2008). *Introduction to Information Retrieval.* Cambridge University Press. [https://nlp.stanford.edu/IR-book/](https://nlp.stanford.edu/IR-book/) — primary source for the inverted-index design and TF-IDF formulation used in `src/search.py` and `src/ranking.py`.
+- Robertson, S., & Zaragoza, H. (2009). The Probabilistic Relevance Framework: BM25 and Beyond. *Foundations and Trends in Information Retrieval, 3*(4), 333–389. [https://doi.org/10.1561/1500000019](https://doi.org/10.1561/1500000019) — canonical reference for the Okapi BM25 score implemented in `src/ranking.py::bm25_score`.
+- Salton, G., & Buckley, C. (1988). Term-weighting approaches in automatic text retrieval. *Information Processing & Management, 24*(5), 513–523. — foundational discussion of TF-IDF weighting that informs `src/ranking.py::tfidf_score`.
+- Levenshtein, V. I. (1966). Binary codes capable of correcting deletions, insertions, and reversals. *Soviet Physics Doklady, 10*(8), 707–710. — original edit-distance paper underpinning the spelling-suggestion fallback in `src/search.py::suggest_terms`.
+
+### Tools and libraries
+
 - COMP3011 Coursework 2 Brief
 - Python Requests documentation
 - Beautiful Soup documentation
