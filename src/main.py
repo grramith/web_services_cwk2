@@ -30,19 +30,25 @@ from src.search import (
     print_word,
     query_positive_terms,
 )
-from src.storage import IndexNotFoundError, load_index, save_index
+from src.storage import (
+    IndexNotFoundError,
+    load_index,
+    load_index_metadata,
+    save_index,
+)
 
 
 PROMPT = "> "
 HELP_TEXT = (
     "Available commands:\n"
-    "  build [max_pages]  crawl the site and build a fresh index\n"
-    "                     (optional cap: 'build 10' fetches at most 10 pages)\n"
-    "  load               load the saved index from data/index.json\n"
-    "  print <word>       show the index entry for one word\n"
-    "  find <query>       search (multi-word = AND, ranked by TF-IDF)\n"
-    "  help               show this message\n"
-    "  exit | quit        leave the shell"
+    "  build [max_pages] [--stem]  crawl the site and build a fresh index\n"
+    "                              (optional cap: 'build 10' fetches at most 10 pages;\n"
+    "                               --stem enables Porter stemming, default OFF)\n"
+    "  load                        load the saved index from data/index.json\n"
+    "  print <word>                show the index entry for one word\n"
+    "  find <query>                search (multi-word = AND, ranked by TF-IDF)\n"
+    "  help                        show this message\n"
+    "  exit | quit                 leave the shell"
 )
 
 
@@ -57,6 +63,7 @@ class Shell:
     def __init__(self, index_path: str = DEFAULT_INDEX_PATH) -> None:
         self.index_path = index_path
         self.index: Optional[InvertedIndex] = None
+        self.stem: bool = False
         self._handlers: Dict[str, Callable[[List[str]], None]] = {
             "build": self.cmd_build,
             "load": self.cmd_load,
@@ -122,21 +129,37 @@ class Shell:
         print(HELP_TEXT)
 
     def cmd_build(self, args: List[str]) -> None:
-        """Crawl, index, and save. Optional first arg caps the page count."""
+        """Crawl, index, and save. Optional first arg caps the page count.
+
+        Accepts an optional ``--stem`` flag (anywhere in the argument
+        list) that enables the Porter stemmer for the build. The flag
+        is persisted in the index metadata so subsequent ``load`` calls
+        can configure search consistently.
+        """
+        tokens = args[0].split() if args and args[0].strip() else []
+        stem = False
+        positional: List[str] = []
+        for token in tokens:
+            if token == "--stem":
+                stem = True
+            else:
+                positional.append(token)
+
         max_pages: Optional[int] = None
-        if args and args[0].strip():
-            token = args[0].split()[0]
+        if positional:
+            head = positional[0]
             try:
-                max_pages = int(token)
+                max_pages = int(head)
                 if max_pages <= 0:
                     raise ValueError
             except ValueError:
-                print(f"Usage: build [max_pages]  (got {token!r})")
+                print(f"Usage: build [max_pages] [--stem]  (got {head!r})")
                 return
 
         cap_note = f" (capped at {max_pages} pages)" if max_pages else ""
+        stem_note = ", Porter stemmer ON" if stem else ""
         print(
-            f"Crawling {BASE_URL}{cap_note}. "
+            f"Crawling {BASE_URL}{cap_note}{stem_note}. "
             f"A 6-second politeness delay runs between every request, "
             f"so the full site takes a few minutes — progress prints below."
         )
@@ -149,8 +172,9 @@ class Shell:
             print(f"Crawl aborted: {exc}")
             return
         print(f"Fetched {len(pages)} page(s). Building index...")
-        self.index = Indexer().build_index(pages)
-        save_index(self.index, self.index_path)
+        self.index = Indexer(stem=stem).build_index(pages)
+        save_index(self.index, self.index_path, stem=stem)
+        self.stem = stem
         print(
             f"Index built ({len(self.index)} unique terms) "
             f"and saved to {self.index_path}."
@@ -165,8 +189,12 @@ class Shell:
         except ValueError as exc:
             print(f"Could not parse index file: {exc}")
             return
+        meta = load_index_metadata(self.index_path)
+        self.stem = bool(meta.get("stem", False))
+        stem_note = " (Porter stemmer ON)" if self.stem else ""
         print(
-            f"Loaded index with {len(self.index)} term(s) from {self.index_path}."
+            f"Loaded index with {len(self.index)} term(s) from "
+            f"{self.index_path}{stem_note}."
         )
 
     def cmd_print(self, args: List[str]) -> None:
@@ -187,7 +215,9 @@ class Shell:
             print("No index loaded — run 'build' or 'load' first.")
             return
         query = args[0]
-        results, suggestions = find_with_suggestions(self.index, query)
+        results, suggestions = find_with_suggestions(
+            self.index, query, stem=self.stem
+        )
         if not results:
             if suggestions:
                 hints = "; ".join(
@@ -207,7 +237,7 @@ class Shell:
         else:
             header = f"{len(results)} result(s) for {query!r} (ranked by TF-IDF):"
         print(header)
-        snippet_terms = query_positive_terms(query)
+        snippet_terms = query_positive_terms(query, stem=self.stem)
         ansi = sys.stdout.isatty()
         for rank, url in enumerate(results, start=1):
             print(f"  {rank}. {url}")

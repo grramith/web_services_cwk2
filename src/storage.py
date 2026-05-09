@@ -39,21 +39,39 @@ class IndexNotFoundError(FileNotFoundError):
     """
 
 
-def save_index(index: InvertedIndex, path: str) -> None:
+def save_index(
+    index: InvertedIndex,
+    path: str,
+    *,
+    stem: bool = False,
+) -> None:
     """Serialise ``index`` to ``path`` as UTF-8 JSON.
 
     The parent directory is created if missing. Output is pretty-printed with
     two-space indentation so the file remains human-inspectable.
 
+    A small sidecar file at ``{path}.meta.json`` is written alongside the
+    main index, recording configuration that the search side needs to
+    reproduce — currently just whether the index was built with the Porter
+    stemmer enabled. The sidecar is optional: callers that don't pass
+    keyword arguments still produce the original on-disk layout, so
+    existing tests and indexes remain valid.
+
     Args:
         index: The inverted index to persist.
         path: Filesystem path of the JSON file to write.
+        stem: Whether the index was built with stemming. Persisted in the
+            ``.meta.json`` sidecar so :func:`load_index_metadata` can
+            recover it later.
     """
     parent = os.path.dirname(os.path.abspath(path))
     if parent:
         os.makedirs(parent, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(index, fh, ensure_ascii=False, indent=2, sort_keys=True)
+    meta_path = path + ".meta.json"
+    with open(meta_path, "w", encoding="utf-8") as fh:
+        json.dump({"stem": bool(stem)}, fh, indent=2, sort_keys=True)
     logger.info("Saved index with %d terms to %s", len(index), path)
 
 
@@ -83,3 +101,30 @@ def load_index(path: str) -> InvertedIndex:
             ) from exc
     logger.info("Loaded index with %d terms from %s", len(data), path)
     return data  # type: ignore[return-value]
+
+
+def load_index_metadata(path: str) -> Dict[str, object]:
+    """Return the metadata sidecar that ships next to ``path``.
+
+    Args:
+        path: Filesystem path of the index JSON file. The metadata is
+            looked up at ``{path}.meta.json``.
+
+    Returns:
+        A dict whose keys are the configuration flags persisted by
+        :func:`save_index`. If the sidecar does not exist (older indexes
+        that predate the stemmer feature) the function returns the
+        documented defaults so callers can use the result unconditionally.
+    """
+    meta_path = path + ".meta.json"
+    defaults: Dict[str, object] = {"stem": False}
+    if not os.path.exists(meta_path):
+        return defaults
+    with open(meta_path, "r", encoding="utf-8") as fh:
+        try:
+            payload: Dict[str, object] = json.load(fh)
+        except json.JSONDecodeError:
+            return defaults
+    out = dict(defaults)
+    out.update(payload)
+    return out
