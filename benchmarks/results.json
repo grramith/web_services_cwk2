@@ -1,12 +1,12 @@
 {
-  "build_seconds": 0.010548624908551574,
+  "build_seconds": 0.010388041000055637,
   "build_pages": 50,
   "build_tokens_total": 12600,
-  "load_seconds": 0.018738084007054567,
+  "load_seconds": 0.014904500000056942,
   "load_terms": 4574,
-  "query_seconds_mean": 0.0012690282566472889,
-  "query_seconds_median": 0.0007424374343827367,
-  "query_seconds_max": 0.006773333065211773,
+  "query_seconds_mean": 0.0013830116600024667,
+  "query_seconds_median": 0.0007223540000040884,
+  "query_seconds_max": 0.007594375000053333,
   "query_count": 50,
   "index_bytes": 2796791
 }
